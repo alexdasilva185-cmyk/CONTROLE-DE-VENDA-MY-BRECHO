@@ -1,7 +1,8 @@
 import React from 'react';
 import { MONTH_NAMES_PT, formatDateFull, getTodayDateString } from '../utils/formatters';
-import { ChevronLeft, ChevronRight, TrendingUp, Calendar, WifiOff } from 'lucide-react';
+import { ChevronLeft, ChevronRight, TrendingUp, Calendar, WifiOff, Cloud, CloudCheck, LogIn, LogOut, User } from 'lucide-react';
 import { useOnlineStatus } from '../hooks/useOnlineStatus';
+import { useAuth } from '../context/AuthContext';
 
 interface HeaderProps {
   businessName: string;
@@ -20,6 +21,7 @@ export const Header: React.FC<HeaderProps> = ({
   onNextMonth,
 }) => {
   const isOnline = useOnlineStatus();
+  const { user, signInWithGoogle, signOutUser } = useAuth();
   const todayStr = getTodayDateString();
 
   return (
@@ -41,13 +43,50 @@ export const Header: React.FC<HeaderProps> = ({
           </div>
         </div>
 
-        {/* Offline indicator if disconnected */}
-        {!isOnline && (
-          <div className="flex items-center gap-1 bg-amber-500/20 text-amber-300 text-[11px] font-semibold px-2 py-1 rounded-lg border border-amber-500/30">
-            <WifiOff className="w-3.5 h-3.5" />
-            <span>Offline</span>
-          </div>
-        )}
+        {/* Right Status Actions: Offline / Cloud Sync & User Profile */}
+        <div className="flex items-center gap-1.5 shrink-0">
+          {!isOnline && (
+            <div className="flex items-center gap-1 bg-amber-500/20 text-amber-300 text-[10px] font-semibold px-2 py-1 rounded-lg border border-amber-500/30">
+              <WifiOff className="w-3 h-3" />
+              <span>Offline</span>
+            </div>
+          )}
+
+          {user ? (
+            <div className="flex items-center gap-1.5 bg-slate-900 border border-slate-800 rounded-xl px-2 py-1">
+              {user.photoURL ? (
+                <img
+                  src={user.photoURL}
+                  alt={user.displayName || 'Usuário'}
+                  className="w-5 h-5 rounded-full border border-emerald-500/50"
+                />
+              ) : (
+                <div className="w-5 h-5 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center text-[10px] font-bold">
+                  {user.email?.charAt(0).toUpperCase() || 'U'}
+                </div>
+              )}
+              <span className="text-[10px] text-emerald-400 font-bold hidden sm:inline truncate max-w-[80px]">
+                Nuvem Ativa
+              </span>
+              <button
+                onClick={signOutUser}
+                title="Sair da conta"
+                className="text-slate-400 hover:text-rose-400 transition ml-0.5 p-0.5"
+              >
+                <LogOut className="w-3 h-3" />
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={signInWithGoogle}
+              className="flex items-center gap-1 bg-emerald-950/70 hover:bg-emerald-900/90 text-emerald-300 border border-emerald-600/40 text-[11px] font-bold px-2.5 py-1 rounded-xl transition cursor-pointer shadow-sm"
+              title="Salvar dados na nuvem com o Google"
+            >
+              <Cloud className="w-3.5 h-3.5 text-emerald-400" />
+              <span>Conectar Nuvem</span>
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Month Navigation Strip */}

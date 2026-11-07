@@ -1,0 +1,102 @@
+{
+  "entities": {
+    "DailySale": {
+      "title": "DailySale",
+      "description": "Registro diário de vendas e lucro do usuário",
+      "type": "object",
+      "properties": {
+        "date": {
+          "type": "string",
+          "description": "Data no formato YYYY-MM-DD"
+        },
+        "totalSales": {
+          "type": "number",
+          "description": "Faturamento bruto total do dia"
+        },
+        "cost": {
+          "type": "number",
+          "description": "Custo total das mercadorias"
+        },
+        "profit": {
+          "type": "number",
+          "description": "Lucro líquido do dia"
+        },
+        "profitMargin": {
+          "type": "number",
+          "description": "Margem de lucro em porcentagem"
+        },
+        "salesCount": {
+          "type": "number",
+          "description": "Volume de vendas (quantidade de pedidos/clientes)"
+        },
+        "averageTicket": {
+          "type": "number",
+          "description": "Ticket médio por venda"
+        },
+        "userId": {
+          "type": "string",
+          "description": "ID do usuário proprietário"
+        },
+        "notes": {
+          "type": "string",
+          "description": "Observações do dia"
+        },
+        "paymentMethods": {
+          "type": "object",
+          "description": "Rateio por forma de pagamento"
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "Data e hora de criação"
+        },
+        "updatedAt": {
+          "type": "string",
+          "description": "Data e hora da última atualização"
+        }
+      },
+      "required": ["date", "totalSales", "cost", "profit", "salesCount", "userId"]
+    },
+    "AppSettings": {
+      "title": "AppSettings",
+      "description": "Configurações do negócio e metas mensais do usuário",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "ID do usuário proprietário"
+        },
+        "businessName": {
+          "type": "string",
+          "description": "Nome da loja ou negócio"
+        },
+        "monthlyGoal": {
+          "type": "number",
+          "description": "Meta mensal de faturamento"
+        },
+        "defaultProfitMargin": {
+          "type": "number",
+          "description": "Margem de lucro padrão estimada"
+        },
+        "defaultCalculationMode": {
+          "type": "string",
+          "description": "Modo padrão de cálculo de lucro"
+        },
+        "updatedAt": {
+          "type": "string",
+          "description": "Data da atualização"
+        }
+      },
+      "required": ["userId", "businessName", "monthlyGoal"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}/sales/{saleId}": {
+      "schema": "#/entities/DailySale",
+      "description": "Coleção de vendas diárias pertencentes ao usuário"
+    },
+    "/users/{userId}/settings/config": {
+      "schema": "#/entities/AppSettings",
+      "description": "Documento de preferências e meta mensal do usuário"
+    }
+  }
+}
