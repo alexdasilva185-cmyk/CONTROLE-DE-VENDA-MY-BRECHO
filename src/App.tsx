@@ -9,6 +9,8 @@ import { SettingsTab } from './components/SettingsTab';
 import { SaleFormModal } from './components/SaleFormModal';
 import { CalculatorModal } from './components/CalculatorModal';
 import { PWAInstallBanner } from './components/PWAInstallBanner';
+import { FirebaseAuthHelperModal } from './components/FirebaseAuthHelperModal';
+import { useAuth } from './context/AuthContext';
 import { DailySale } from './types/sales';
 
 export default function App() {
@@ -33,6 +35,7 @@ export default function App() {
     importData,
   } = useSalesData();
 
+  const { isUnauthorizedDomain, clearAuthError } = useAuth();
   const [currentTab, setCurrentTab] = useState<NavTab>('today');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [saleToEdit, setSaleToEdit] = useState<DailySale | null>(null);
@@ -173,6 +176,12 @@ export default function App() {
               updatedAt: '',
             });
           }}
+        />
+
+        {/* Global Firebase Vercel Domain Helper Modal */}
+        <FirebaseAuthHelperModal
+          isOpen={isUnauthorizedDomain}
+          onClose={clearAuthError}
         />
       </div>
     </div>

@@ -3,6 +3,7 @@ import { DailySale, AppSettings } from '../types/sales';
 import { exportSalesToCSV } from '../utils/storage';
 import { syncLocalSalesToCloud } from '../lib/firestoreService';
 import { useAuth } from '../context/AuthContext';
+import { FirebaseAuthHelperModal } from './FirebaseAuthHelperModal';
 import {
   SlidersHorizontal,
   Store,
@@ -20,6 +21,9 @@ import {
   LogIn,
   LogOut,
   Database,
+  ShieldAlert,
+  Globe,
+  ExternalLink,
 } from 'lucide-react';
 
 interface SettingsTabProps {
@@ -39,12 +43,21 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
   onResetSample,
   onImportData,
 }) => {
-  const { user, signInWithGoogle, signOutUser } = useAuth();
+  const {
+    user,
+    isLoggingIn,
+    authError,
+    isUnauthorizedDomain,
+    currentDomain,
+    signInWithGoogle,
+    signOutUser,
+  } = useAuth();
   const [businessName, setBusinessName] = useState(settings.businessName || '');
   const [defaultMargin, setDefaultMargin] = useState(String(settings.defaultProfitMargin || 50));
   const [savedSuccess, setSavedSuccess] = useState(false);
   const [syncingCloud, setSyncingCloud] = useState(false);
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
+  const [showAuthHelper, setShowAuthHelper] = useState(false);
 
   const handleSaveGeneral = (e: React.FormEvent) => {
     e.preventDefault();
@@ -173,17 +186,61 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
             </button>
           </div>
         ) : (
-          <div className="rounded-2xl bg-slate-950/70 p-3.5 border border-slate-800 space-y-2.5">
+          <div className="rounded-2xl bg-slate-950/70 p-3.5 border border-slate-800 space-y-3">
             <p className="text-xs text-slate-300 leading-relaxed">
               Conecte sua conta do Google para sincronizar suas vendas automaticamente na nuvem. Seus dados nunca serão perdidos caso troque de aparelho!
             </p>
+
+            {authError && (
+              <div className="rounded-xl bg-rose-500/15 border border-rose-500/30 p-2.5 text-xs text-rose-200 space-y-2">
+                <div className="flex items-start gap-1.5 font-bold text-rose-300">
+                  <ShieldAlert className="w-4 h-4 shrink-0 mt-0.5" />
+                  <span>Erro ao conectar com Google</span>
+                </div>
+                <p className="text-[11px] leading-tight text-rose-200">
+                  {authError}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setShowAuthHelper(true)}
+                  className="w-full flex items-center justify-center gap-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-extrabold py-2 px-3 text-xs transition cursor-pointer shadow"
+                >
+                  <Globe className="w-3.5 h-3.5" />
+                  <span>Como Liberar Domínio da Vercel</span>
+                </button>
+              </div>
+            )}
+
             <button
               onClick={signInWithGoogle}
-              className="w-full flex items-center justify-center gap-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold py-2.5 px-4 text-xs shadow-md transition cursor-pointer"
+              disabled={isLoggingIn}
+              className="w-full flex items-center justify-center gap-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold py-2.5 px-4 text-xs shadow-md transition cursor-pointer disabled:opacity-50"
             >
-              <LogIn className="w-4 h-4" />
-              <span>Conectar com Google</span>
+              {isLoggingIn ? (
+                <>
+                  <RefreshCw className="w-4 h-4 animate-spin text-slate-950" />
+                  <span>Conectando ao Google...</span>
+                </>
+              ) : (
+                <>
+                  <LogIn className="w-4 h-4" />
+                  <span>Conectar com Google</span>
+                </>
+              )}
             </button>
+
+            {/* Vercel helper tip */}
+            <div className="pt-1 flex items-center justify-between text-[11px] text-slate-400 border-t border-slate-800/80">
+              <span>Hospedado na Vercel?</span>
+              <button
+                type="button"
+                onClick={() => setShowAuthHelper(true)}
+                className="text-emerald-400 hover:text-emerald-300 font-semibold underline underline-offset-2 flex items-center gap-1 cursor-pointer"
+              >
+                <span>Configurar Domínio</span>
+                <ExternalLink className="w-3 h-3" />
+              </button>
+            </div>
           </div>
         )}
       </div>
@@ -334,6 +391,12 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
         </div>
         <p>100% responsivo para celular • Nuvem Firestore ativa • Funciona offline</p>
       </div>
+
+      {/* Firebase Vercel Domain Authorization Helper Modal */}
+      <FirebaseAuthHelperModal
+        isOpen={showAuthHelper || isUnauthorizedDomain}
+        onClose={() => setShowAuthHelper(false)}
+      />
     </div>
   );
 };

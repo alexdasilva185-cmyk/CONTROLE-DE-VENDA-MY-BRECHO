@@ -3,6 +3,8 @@ import {
   getAuth,
   GoogleAuthProvider,
   signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult,
   signOut,
   onAuthStateChanged,
   User,
@@ -14,8 +16,9 @@ const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 export const auth = getAuth(app);
 export const googleAuthProvider = new GoogleAuthProvider();
+export const firebaseProjectId = firebaseConfig.projectId;
 
-export { signInWithPopup, signOut, onAuthStateChanged };
+export { signInWithPopup, signInWithRedirect, getRedirectResult, signOut, onAuthStateChanged };
 export type { User };
 
 // Test connection on boot as recommended by the skill

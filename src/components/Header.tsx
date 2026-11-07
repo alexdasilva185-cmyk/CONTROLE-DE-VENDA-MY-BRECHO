@@ -1,6 +1,6 @@
 import React from 'react';
 import { MONTH_NAMES_PT, formatDateFull, getTodayDateString } from '../utils/formatters';
-import { ChevronLeft, ChevronRight, TrendingUp, Calendar, WifiOff, Cloud, CloudCheck, LogIn, LogOut, User, Calculator } from 'lucide-react';
+import { ChevronLeft, ChevronRight, TrendingUp, Calendar, WifiOff, Cloud, CloudCheck, LogIn, LogOut, User, Calculator, RefreshCw } from 'lucide-react';
 import { useOnlineStatus } from '../hooks/useOnlineStatus';
 import { useAuth } from '../context/AuthContext';
 
@@ -23,7 +23,7 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenCalculator,
 }) => {
   const isOnline = useOnlineStatus();
-  const { user, signInWithGoogle, signOutUser } = useAuth();
+  const { user, isLoggingIn, signInWithGoogle, signOutUser } = useAuth();
   const todayStr = getTodayDateString();
 
   return (
@@ -81,11 +81,21 @@ export const Header: React.FC<HeaderProps> = ({
           ) : (
             <button
               onClick={signInWithGoogle}
-              className="flex items-center gap-1 bg-emerald-950/70 hover:bg-emerald-900/90 text-emerald-300 border border-emerald-600/40 text-[11px] font-bold px-2.5 py-1 rounded-xl transition cursor-pointer shadow-sm"
+              disabled={isLoggingIn}
+              className="flex items-center gap-1 bg-emerald-950/70 hover:bg-emerald-900/90 text-emerald-300 border border-emerald-600/40 text-[11px] font-bold px-2.5 py-1 rounded-xl transition cursor-pointer shadow-sm disabled:opacity-50"
               title="Salvar dados na nuvem com o Google"
             >
-              <Cloud className="w-3.5 h-3.5 text-emerald-400" />
-              <span>Conectar Nuvem</span>
+              {isLoggingIn ? (
+                <>
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin text-emerald-400" />
+                  <span>Conectando...</span>
+                </>
+              ) : (
+                <>
+                  <Cloud className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>Conectar Nuvem</span>
+                </>
+              )}
             </button>
           )}
 
