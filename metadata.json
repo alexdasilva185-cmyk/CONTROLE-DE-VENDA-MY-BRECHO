@@ -1,0 +1,6 @@
+{
+  "name": "Controle de Vendas & Lucro",
+  "description": "Aplicativo simples para celular de controle de vendas diárias, lucro do dia e média de faturamento mensal.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
