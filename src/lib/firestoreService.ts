@@ -4,7 +4,6 @@ import {
   setDoc,
   deleteDoc,
   onSnapshot,
-  getDocs,
 } from 'firebase/firestore';
 import { db, auth } from './firebase';
 import { DailySale, AppSettings } from '../types/sales';
@@ -61,6 +60,26 @@ export function handleFirestoreError(
   throw new Error(JSON.stringify(errInfo));
 }
 
+// Deeply removes any undefined values to ensure Firestore compatibility
+export function cleanForFirestore(obj: unknown): any {
+  if (obj === undefined) return null;
+  if (obj === null || typeof obj !== 'object') return obj;
+
+  if (Array.isArray(obj)) {
+    return obj
+      .filter((item) => item !== undefined)
+      .map((item) => cleanForFirestore(item));
+  }
+
+  const cleaned: Record<string, any> = {};
+  for (const [key, value] of Object.entries(obj as Record<string, any>)) {
+    if (value !== undefined) {
+      cleaned[key] = cleanForFirestore(value);
+    }
+  }
+  return cleaned;
+}
+
 // Subscribe to real-time sales for a user
 export function subscribeToUserSales(
   userId: string,
@@ -85,8 +104,14 @@ export function subscribeToUserSales(
           profitMargin: Number(data.profitMargin) || 0,
           salesCount: Number(data.salesCount) || 1,
           averageTicket: Number(data.averageTicket) || 0,
-          paymentMethods: data.paymentMethods || undefined,
-          notes: data.notes || undefined,
+          paymentMethods: data.paymentMethods ? {
+            pix: Number(data.paymentMethods.pix) || 0,
+            credit: Number(data.paymentMethods.credit) || 0,
+            debit: Number(data.paymentMethods.debit) || 0,
+            cash: Number(data.paymentMethods.cash) || 0,
+          } : undefined,
+          entries: Array.isArray(data.entries) ? data.entries : [],
+          notes: data.notes || '',
           createdAt: data.createdAt || new Date().toISOString(),
           updatedAt: data.updatedAt || new Date().toISOString(),
         });
@@ -109,17 +134,51 @@ export function subscribeToUserSales(
 
 // Save or update a single daily sale
 export async function saveSaleToCloud(userId: string, sale: DailySale): Promise<void> {
-  const path = `users/${userId}/sales/${sale.id}`;
+  const saleId = sale.id || `sale-${sale.date || getTodaySafeDate()}`;
+  const path = `users/${userId}/sales/${saleId}`;
   try {
-    const docRef = doc(db, 'users', userId, 'sales', sale.id);
-    await setDoc(docRef, {
-      ...sale,
+    const docRef = doc(db, 'users', userId, 'sales', saleId);
+
+    // Explicitly construct safe object without any undefined values
+    const safeData = cleanForFirestore({
+      id: saleId,
+      date: sale.date || getTodaySafeDate(),
+      totalSales: Number(sale.totalSales) || 0,
+      cost: Number(sale.cost) || 0,
+      profit: Number(sale.profit) || 0,
+      profitMargin: Number(sale.profitMargin) || 0,
+      salesCount: Math.max(1, Number(sale.salesCount) || 1),
+      averageTicket: Number(sale.averageTicket) || (Number(sale.totalSales) || 0),
+      paymentMethods: {
+        pix: Number(sale.paymentMethods?.pix) || 0,
+        credit: Number(sale.paymentMethods?.credit) || 0,
+        cash: Number(sale.paymentMethods?.cash) || 0,
+      },
+      entries: (sale.entries || []).map((e) => ({
+        id: e.id || `entry-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        amount: Number(e.amount) || 0,
+        paymentMethod: e.paymentMethod || 'pix',
+        time: e.time || '12:00',
+        createdAt: e.createdAt || new Date().toISOString(),
+      })),
+      notes: typeof sale.notes === 'string' ? sale.notes : '',
       userId,
+      createdAt: sale.createdAt || new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     });
+
+    await setDoc(docRef, safeData);
   } catch (error) {
     handleFirestoreError(error, OperationType.WRITE, path);
   }
+}
+
+function getTodaySafeDate(): string {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
 }
 
 // Delete a daily sale
@@ -138,11 +197,15 @@ export async function saveSettingsToCloud(userId: string, settings: AppSettings)
   const path = `users/${userId}/settings/config`;
   try {
     const docRef = doc(db, 'users', userId, 'settings', 'config');
-    await setDoc(docRef, {
-      ...settings,
+    const safeData = cleanForFirestore({
+      businessName: settings.businessName || 'Meu Negócio',
+      monthlyGoal: Number(settings.monthlyGoal) || 15000,
+      defaultProfitMargin: Number(settings.defaultProfitMargin) || 50,
+      defaultCalculationMode: settings.defaultCalculationMode || 'cost',
       userId,
       updatedAt: new Date().toISOString(),
     });
+    await setDoc(docRef, safeData);
   } catch (error) {
     handleFirestoreError(error, OperationType.WRITE, path);
   }

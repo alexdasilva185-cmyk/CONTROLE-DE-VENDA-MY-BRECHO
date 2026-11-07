@@ -1,3 +1,11 @@
+export interface SaleEntry {
+  id: string;
+  amount: number;
+  paymentMethod: 'pix' | 'cash' | 'card';
+  time: string; // HH:mm
+  createdAt: string;
+}
+
 export interface DailySale {
   id: string;
   date: string; // YYYY-MM-DD
@@ -14,6 +22,7 @@ export interface DailySale {
     cash?: number;
     other?: number;
   };
+  entries?: SaleEntry[];
   notes?: string;
   createdAt: string;
   updatedAt: string;

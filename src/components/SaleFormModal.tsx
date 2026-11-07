@@ -1,8 +1,11 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { DailySale, AppSettings } from '../types/sales';
-import { formatCurrency, formatPercent, getTodayDateString, parseBRInputToNumber } from '../utils/formatters';
-import { X, Check, DollarSign, ShoppingBag, Calendar, Sparkles, HelpCircle, ChevronDown, ChevronUp } from 'lucide-react';
+import { formatCurrency, getTodayDateString, parseBRInputToNumber } from '../utils/formatters';
+import { X, Check, DollarSign, Calendar, Sparkles, QrCode, Banknote, CreditCard, Calculator } from 'lucide-react';
 import confetti from 'canvas-confetti';
+import { CalculatorModal } from './CalculatorModal';
+
+type PaymentMethodType = 'pix' | 'cash' | 'card';
 
 interface SaleFormModalProps {
   isOpen: boolean;
@@ -14,6 +17,7 @@ interface SaleFormModalProps {
     profit?: number;
     salesCount: number;
     paymentMethods?: DailySale['paymentMethods'];
+    entries?: DailySale['entries'];
     notes?: string;
   }) => void;
   initialSale?: DailySale | null;
@@ -27,26 +31,19 @@ export const SaleFormModal: React.FC<SaleFormModalProps> = ({
   onSave,
   initialSale,
   settings,
+  existingSales,
 }) => {
   const todayStr = getTodayDateString();
 
   // Date state
   const [date, setDate] = useState<string>(todayStr);
 
-  // Inputs as formatted strings for smooth typing
-  const [salesInput, setSalesInput] = useState<string>('');
-  const [calcMode, setCalcMode] = useState<'cost' | 'margin' | 'direct'>('cost');
-  const [costInput, setCostInput] = useState<string>('');
-  const [marginInput, setMarginInput] = useState<string>(String(settings.defaultProfitMargin || 50));
-  const [directProfitInput, setDirectProfitInput] = useState<string>('');
-  const [salesCount, setSalesCount] = useState<number>(1);
+  // Value input
+  const [amountInput, setAmountInput] = useState<string>('');
+  const [isCalcOpen, setIsCalcOpen] = useState<boolean>(false);
 
-  // Optional details
-  const [showDetails, setShowDetails] = useState<boolean>(false);
-  const [pixInput, setPixInput] = useState<string>('');
-  const [creditInput, setCreditInput] = useState<string>('');
-  const [cashInput, setCashInput] = useState<string>('');
-  const [notes, setNotes] = useState<string>('');
+  // Payment method: 'pix' | 'cash' | 'card'
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethodType>('pix');
 
   // Yesterday helper date string
   const yesterdayStr = useMemo(() => {
@@ -58,88 +55,97 @@ export const SaleFormModal: React.FC<SaleFormModalProps> = ({
     return `${year}-${month}-${day}`;
   }, []);
 
-  // Sync when initialSale or open changes
+  // Sync state when opened
   useEffect(() => {
     if (initialSale) {
       setDate(initialSale.date);
-      setSalesInput(initialSale.totalSales.toFixed(2).replace('.', ','));
-      setCostInput(initialSale.cost.toFixed(2).replace('.', ','));
-      setDirectProfitInput(initialSale.profit.toFixed(2).replace('.', ','));
-      setMarginInput(initialSale.profitMargin.toFixed(0));
-      setSalesCount(initialSale.salesCount || 1);
-      setPixInput(initialSale.paymentMethods?.pix ? initialSale.paymentMethods.pix.toFixed(2).replace('.', ',') : '');
-      setCreditInput(initialSale.paymentMethods?.credit ? initialSale.paymentMethods.credit.toFixed(2).replace('.', ',') : '');
-      setCashInput(initialSale.paymentMethods?.cash ? initialSale.paymentMethods.cash.toFixed(2).replace('.', ',') : '');
-      setNotes(initialSale.notes || '');
-      setCalcMode('cost');
-      if (initialSale.notes || initialSale.paymentMethods) {
-        setShowDetails(true);
+      setAmountInput(initialSale.totalSales.toFixed(2).replace('.', ','));
+      // Detect dominant method if editing
+      if (initialSale.paymentMethods?.cash && initialSale.paymentMethods.cash > (initialSale.paymentMethods.pix || 0)) {
+        setPaymentMethod('cash');
+      } else if (initialSale.paymentMethods?.credit || initialSale.paymentMethods?.debit) {
+        setPaymentMethod('card');
+      } else {
+        setPaymentMethod('pix');
       }
     } else {
       setDate(todayStr);
-      setSalesInput('');
-      setCostInput('');
-      setDirectProfitInput('');
-      setMarginInput(String(settings.defaultProfitMargin || 50));
-      setSalesCount(1);
-      setPixInput('');
-      setCreditInput('');
-      setCashInput('');
-      setNotes('');
-      setCalcMode(settings.defaultCalculationMode || 'cost');
-      setShowDetails(false);
+      setAmountInput('');
+      setPaymentMethod('pix');
     }
-  }, [initialSale, isOpen, settings, todayStr]);
+  }, [initialSale, isOpen, todayStr]);
 
   if (!isOpen) return null;
 
-  // Numerical values
-  const totalSalesVal = parseBRInputToNumber(salesInput);
-
-  let calculatedProfit = 0;
-  let calculatedCost = 0;
-
-  if (calcMode === 'cost') {
-    calculatedCost = parseBRInputToNumber(costInput);
-    calculatedProfit = Math.max(0, totalSalesVal - calculatedCost);
-  } else if (calcMode === 'margin') {
-    const marginPct = parseBRInputToNumber(marginInput);
-    calculatedProfit = (totalSalesVal * marginPct) / 100;
-    calculatedCost = Math.max(0, totalSalesVal - calculatedProfit);
-  } else {
-    // direct
-    calculatedProfit = parseBRInputToNumber(directProfitInput);
-    calculatedCost = Math.max(0, totalSalesVal - calculatedProfit);
-  }
-
-  const profitMargin = totalSalesVal > 0 ? (calculatedProfit / totalSalesVal) * 100 : 0;
-  const averageTicket = salesCount > 0 ? totalSalesVal / salesCount : 0;
+  const currentAmount = parseBRInputToNumber(amountInput);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (totalSalesVal <= 0) {
-      return;
+    if (currentAmount <= 0) return;
+
+    // Check if there is already an existing record for this date
+    const existing = existingSales.find((s) => s.date === date);
+
+    const marginPct = settings.defaultProfitMargin || 50;
+
+    let finalTotalSales = currentAmount;
+    let finalSalesCount = 1;
+    let finalPix = paymentMethod === 'pix' ? currentAmount : 0;
+    let finalCard = paymentMethod === 'card' ? currentAmount : 0;
+    let finalCash = paymentMethod === 'cash' ? currentAmount : 0;
+
+    // If editing existing sale directly
+    if (initialSale && initialSale.date === date) {
+      finalTotalSales = currentAmount;
+      finalSalesCount = initialSale.salesCount || 1;
+      finalPix = paymentMethod === 'pix' ? currentAmount : 0;
+      finalCard = paymentMethod === 'card' ? currentAmount : 0;
+      finalCash = paymentMethod === 'cash' ? currentAmount : 0;
+    } else if (existing && !initialSale) {
+      // Accumulate new sale into this day's total!
+      finalTotalSales = existing.totalSales + currentAmount;
+      finalSalesCount = (existing.salesCount || 1) + 1;
+      finalPix = (existing.paymentMethods?.pix || 0) + (paymentMethod === 'pix' ? currentAmount : 0);
+      finalCard =
+        (existing.paymentMethods?.credit || 0) +
+        (existing.paymentMethods?.debit || 0) +
+        (paymentMethod === 'card' ? currentAmount : 0);
+      finalCash = (existing.paymentMethods?.cash || 0) + (paymentMethod === 'cash' ? currentAmount : 0);
     }
 
-    const pix = parseBRInputToNumber(pixInput);
-    const credit = parseBRInputToNumber(creditInput);
-    const cash = parseBRInputToNumber(cashInput);
+    const now = new Date();
+    const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+    const newEntry = {
+      id: `entry-${Date.now()}`,
+      amount: currentAmount,
+      paymentMethod,
+      time: timeStr,
+      createdAt: now.toISOString(),
+    };
+
+    let finalEntries = existing?.entries ? [newEntry, ...existing.entries] : [newEntry];
+    if (initialSale && initialSale.date === date) {
+      finalEntries = initialSale.entries && initialSale.entries.length > 0 ? initialSale.entries : [newEntry];
+    }
+
+    const calculatedProfit = (finalTotalSales * marginPct) / 100;
+    const calculatedCost = finalTotalSales - calculatedProfit;
 
     onSave({
       date,
-      totalSales: totalSalesVal,
+      totalSales: finalTotalSales,
       cost: calculatedCost,
       profit: calculatedProfit,
-      salesCount: Math.max(1, salesCount),
+      salesCount: finalSalesCount,
       paymentMethods: {
-        pix: pix > 0 ? pix : undefined,
-        credit: credit > 0 ? credit : undefined,
-        cash: cash > 0 ? cash : undefined,
+        pix: finalPix > 0 ? finalPix : undefined,
+        credit: finalCard > 0 ? finalCard : undefined,
+        cash: finalCash > 0 ? finalCash : undefined,
       },
-      notes: notes.trim() || undefined,
+      entries: finalEntries,
     });
 
-    // Trigger celebration confetti
+    // Confetti celebration
     try {
       confetti({
         particleCount: 50,
@@ -155,8 +161,8 @@ export const SaleFormModal: React.FC<SaleFormModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/80 backdrop-blur-sm p-0 sm:p-4 overflow-y-auto">
-      <div className="w-full max-w-lg rounded-t-3xl sm:rounded-3xl bg-slate-900 border border-slate-800 text-slate-100 shadow-2xl flex flex-col max-h-[92vh] sm:max-h-[85vh] animate-in slide-in-from-bottom duration-200">
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/80 backdrop-blur-sm p-0 sm:p-4 overflow-y-auto animate-in fade-in">
+      <div className="w-full max-w-md rounded-t-3xl sm:rounded-3xl bg-slate-900 border border-slate-800 text-slate-100 shadow-2xl flex flex-col animate-in slide-in-from-bottom duration-200">
         {/* Header */}
         <div className="flex items-center justify-between px-5 pt-5 pb-3 border-b border-slate-800 shrink-0">
           <div className="flex items-center gap-2.5">
@@ -165,9 +171,9 @@ export const SaleFormModal: React.FC<SaleFormModalProps> = ({
             </div>
             <div>
               <h2 className="text-base font-bold text-white">
-                {initialSale ? 'Editar Lançamento' : 'Lançar Resultados do Dia'}
+                {initialSale ? 'Editar Venda' : 'Lançar Venda'}
               </h2>
-              <p className="text-xs text-slate-400">Informe suas vendas e o lucro do dia</p>
+              <p className="text-xs text-slate-400">Informe o valor e a forma de pagamento</p>
             </div>
           </div>
           <button
@@ -179,19 +185,19 @@ export const SaleFormModal: React.FC<SaleFormModalProps> = ({
           </button>
         </div>
 
-        {/* Form Body */}
-        <form onSubmit={handleSubmit} className="p-5 space-y-4 overflow-y-auto flex-1">
-          {/* Quick Date Pills */}
+        {/* Form Body: Simple, fast and direct */}
+        <form onSubmit={handleSubmit} className="p-5 space-y-4">
+          {/* 1. Date selector (Hoje / Ontem / Outra) */}
           <div>
             <label className="block text-xs font-semibold text-slate-300 mb-1.5 flex items-center gap-1.5">
               <Calendar className="w-3.5 h-3.5 text-emerald-400" />
-              Data das Vendas
+              Data
             </label>
-            <div className="grid grid-cols-3 gap-2 mb-2">
+            <div className="grid grid-cols-3 gap-2">
               <button
                 type="button"
                 onClick={() => setDate(todayStr)}
-                className={`py-2 px-3 text-xs font-bold rounded-xl border transition ${
+                className={`py-2 px-3 text-xs font-bold rounded-xl border transition cursor-pointer ${
                   date === todayStr
                     ? 'bg-emerald-500/20 border-emerald-500 text-emerald-300'
                     : 'bg-slate-800/60 border-slate-700 text-slate-300 hover:bg-slate-800'
@@ -202,7 +208,7 @@ export const SaleFormModal: React.FC<SaleFormModalProps> = ({
               <button
                 type="button"
                 onClick={() => setDate(yesterdayStr)}
-                className={`py-2 px-3 text-xs font-bold rounded-xl border transition ${
+                className={`py-2 px-3 text-xs font-bold rounded-xl border transition cursor-pointer ${
                   date === yesterdayStr
                     ? 'bg-emerald-500/20 border-emerald-500 text-emerald-300'
                     : 'bg-slate-800/60 border-slate-700 text-slate-300 hover:bg-slate-800'
@@ -210,48 +216,57 @@ export const SaleFormModal: React.FC<SaleFormModalProps> = ({
               >
                 Ontem
               </button>
-              <div className="relative">
-                <input
-                  type="date"
-                  value={date}
-                  onChange={(e) => setDate(e.target.value)}
-                  className="w-full h-full py-2 px-2.5 text-xs font-semibold rounded-xl bg-slate-800/60 border border-slate-700 text-slate-200 focus:outline-none focus:border-emerald-500"
-                />
-              </div>
+              <input
+                type="date"
+                value={date}
+                onChange={(e) => setDate(e.target.value)}
+                className="w-full py-2 px-2 text-xs font-semibold rounded-xl bg-slate-800/60 border border-slate-700 text-slate-200 focus:outline-none focus:border-emerald-500"
+              />
             </div>
           </div>
 
-          {/* Valor Total Vendido (Hero Input) */}
+          {/* 2. Valor da Venda (Hero Input) */}
           <div className="rounded-2xl bg-gradient-to-br from-slate-800/90 to-slate-850 p-4 border border-slate-750 shadow-inner">
-            <label className="block text-xs font-bold uppercase tracking-wider text-emerald-400 mb-1 flex items-center gap-1">
-              <DollarSign className="w-3.5 h-3.5" />
-              Quanto você vendeu no dia? (Total Bruto)
-            </label>
+            <div className="flex items-center justify-between mb-1">
+              <label className="text-xs font-bold uppercase tracking-wider text-emerald-400 flex items-center gap-1">
+                <DollarSign className="w-4 h-4" />
+                Valor da Venda
+              </label>
+              <button
+                type="button"
+                onClick={() => setIsCalcOpen(true)}
+                className="flex items-center gap-1.5 text-xs font-bold text-emerald-300 hover:text-white bg-slate-800 hover:bg-slate-750 border border-emerald-500/30 px-2.5 py-1 rounded-xl transition cursor-pointer shadow-sm active:scale-95"
+              >
+                <Calculator className="w-3.5 h-3.5 text-emerald-400" />
+                <span>Calculadora</span>
+              </button>
+            </div>
             <div className="relative mt-2 flex items-center">
-              <span className="absolute left-3 text-lg font-bold text-slate-400">R$</span>
+              <span className="absolute left-3.5 text-xl font-bold text-slate-400">R$</span>
               <input
                 type="text"
                 inputMode="decimal"
                 placeholder="0,00"
-                value={salesInput}
-                onChange={(e) => setSalesInput(e.target.value)}
-                autoFocus={!initialSale}
+                value={amountInput}
+                onChange={(e) => setAmountInput(e.target.value)}
+                autoFocus
                 required
-                className="w-full rounded-xl bg-slate-950/80 border-2 border-emerald-500/50 focus:border-emerald-400 py-3 pl-11 pr-4 text-2xl font-extrabold text-white placeholder-slate-600 focus:outline-none font-mono transition"
+                className="w-full rounded-xl bg-slate-950/90 border-2 border-emerald-500/50 focus:border-emerald-400 py-3.5 pl-12 pr-4 text-3xl font-extrabold text-white placeholder-slate-600 focus:outline-none font-mono transition"
               />
             </div>
-            {/* Quick addition chips */}
-            <div className="mt-2 flex items-center gap-1.5 overflow-x-auto pb-1 text-[11px]">
+
+            {/* Quick addition shortcut chips */}
+            <div className="mt-2.5 flex items-center gap-1.5 overflow-x-auto pb-1 text-xs">
               <span className="text-slate-400 text-[10px] uppercase font-semibold">Atalhos:</span>
-              {[50, 100, 250, 500, 1000].map((val) => (
+              {[20, 50, 100, 200, 500].map((val) => (
                 <button
                   type="button"
                   key={val}
                   onClick={() => {
-                    const current = parseBRInputToNumber(salesInput);
-                    setSalesInput((current + val).toFixed(2).replace('.', ','));
+                    const current = parseBRInputToNumber(amountInput);
+                    setAmountInput((current + val).toFixed(2).replace('.', ','));
                   }}
-                  className="px-2 py-1 rounded-lg bg-slate-800 text-emerald-300 hover:bg-slate-700 border border-slate-700 font-mono transition cursor-pointer"
+                  className="px-2.5 py-1 rounded-lg bg-slate-800 text-emerald-300 hover:bg-slate-700 border border-slate-700 font-mono transition cursor-pointer"
                 >
                   +{val}
                 </button>
@@ -259,267 +274,102 @@ export const SaleFormModal: React.FC<SaleFormModalProps> = ({
             </div>
           </div>
 
-          {/* Profit Calculation Mode */}
-          <div className="rounded-2xl bg-slate-850 p-3.5 border border-slate-800">
-            <div className="flex items-center justify-between mb-2">
-              <label className="text-xs font-bold text-slate-200 flex items-center gap-1">
-                Como calcular o Lucro do Dia?
-              </label>
-              <span className="text-[10px] text-slate-400">Escolha o jeito mais fácil</span>
-            </div>
-
-            {/* Mode Tabs */}
-            <div className="grid grid-cols-3 gap-1.5 p-1 rounded-xl bg-slate-900 border border-slate-800 mb-3">
+          {/* 3. Método de Recebimento (Pix, Dinheiro, Cartão) */}
+          <div>
+            <label className="block text-xs font-bold text-slate-200 mb-2">
+              Forma de Recebimento
+            </label>
+            <div className="grid grid-cols-3 gap-2.5">
+              {/* PIX */}
               <button
                 type="button"
-                onClick={() => setCalcMode('cost')}
-                className={`py-1.5 text-[11px] font-bold rounded-lg transition ${
-                  calcMode === 'cost'
-                    ? 'bg-emerald-500 text-slate-950 shadow-sm'
-                    : 'text-slate-400 hover:text-white'
+                onClick={() => setPaymentMethod('pix')}
+                className={`flex flex-col items-center justify-center p-3.5 rounded-2xl border-2 transition cursor-pointer ${
+                  paymentMethod === 'pix'
+                    ? 'bg-emerald-500/20 border-emerald-500 text-white shadow-lg shadow-emerald-950/40'
+                    : 'bg-slate-850 border-slate-800 text-slate-400 hover:text-white hover:bg-slate-800'
                 }`}
               >
-                Digitar Custo
-              </button>
-              <button
-                type="button"
-                onClick={() => setCalcMode('margin')}
-                className={`py-1.5 text-[11px] font-bold rounded-lg transition ${
-                  calcMode === 'margin'
-                    ? 'bg-emerald-500 text-slate-950 shadow-sm'
-                    : 'text-slate-400 hover:text-white'
-                }`}
-              >
-                % de Margem
-              </button>
-              <button
-                type="button"
-                onClick={() => setCalcMode('direct')}
-                className={`py-1.5 text-[11px] font-bold rounded-lg transition ${
-                  calcMode === 'direct'
-                    ? 'bg-emerald-500 text-slate-950 shadow-sm'
-                    : 'text-slate-400 hover:text-white'
-                }`}
-              >
-                Lucro Direto
-              </button>
-            </div>
-
-            {/* Sub-inputs based on mode */}
-            {calcMode === 'cost' && (
-              <div>
-                <label className="block text-xs text-slate-300 mb-1">
-                  Custo das mercadorias ou gastos do dia:
-                </label>
-                <div className="relative flex items-center">
-                  <span className="absolute left-3 text-sm font-semibold text-slate-400">R$</span>
-                  <input
-                    type="text"
-                    inputMode="decimal"
-                    placeholder="0,00"
-                    value={costInput}
-                    onChange={(e) => setCostInput(e.target.value)}
-                    className="w-full rounded-xl bg-slate-900 border border-slate-700 focus:border-emerald-500 py-2.5 pl-10 pr-3 text-base font-bold text-white font-mono focus:outline-none"
-                  />
-                </div>
-              </div>
-            )}
-
-            {calcMode === 'margin' && (
-              <div>
-                <div className="flex justify-between items-center mb-1">
-                  <label className="text-xs text-slate-300">
-                    Sua margem estimada de lucro:
-                  </label>
-                  <span className="text-xs font-bold text-emerald-400 font-mono">
-                    {marginInput}%
-                  </span>
-                </div>
-                <div className="flex items-center gap-2">
-                  {[30, 40, 50, 60, 70].map((pct) => (
-                    <button
-                      type="button"
-                      key={pct}
-                      onClick={() => setMarginInput(String(pct))}
-                      className={`flex-1 py-1.5 rounded-lg text-xs font-bold border transition ${
-                        marginInput === String(pct)
-                          ? 'bg-emerald-500/20 border-emerald-500 text-emerald-300'
-                          : 'bg-slate-900 border-slate-750 text-slate-400 hover:text-white'
-                      }`}
-                    >
-                      {pct}%
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {calcMode === 'direct' && (
-              <div>
-                <label className="block text-xs text-slate-300 mb-1">
-                  Quanto sobrou limpo de lucro hoje?
-                </label>
-                <div className="relative flex items-center">
-                  <span className="absolute left-3 text-sm font-semibold text-slate-400">R$</span>
-                  <input
-                    type="text"
-                    inputMode="decimal"
-                    placeholder="0,00"
-                    value={directProfitInput}
-                    onChange={(e) => setDirectProfitInput(e.target.value)}
-                    className="w-full rounded-xl bg-slate-900 border border-slate-700 focus:border-emerald-500 py-2.5 pl-10 pr-3 text-base font-bold text-white font-mono focus:outline-none"
-                  />
-                </div>
-              </div>
-            )}
-
-            {/* Live Profit Preview Box */}
-            <div className="mt-3 rounded-xl bg-emerald-950/40 border border-emerald-800/40 p-3 flex items-center justify-between">
-              <div>
-                <span className="text-[11px] font-semibold text-emerald-300">LUCRO DO DIA</span>
-                <p className="text-lg font-black text-emerald-400 font-mono">
-                  {formatCurrency(calculatedProfit)}
-                </p>
-              </div>
-              <div className="text-right">
-                <span className="text-[11px] font-semibold text-slate-400">Margem Real</span>
-                <p className="text-sm font-extrabold text-white font-mono">
-                  {formatPercent(profitMargin)}
-                </p>
-              </div>
-            </div>
-          </div>
-
-          {/* Volume de Vendas (Quantidade) */}
-          <div className="rounded-2xl bg-slate-850 p-3.5 border border-slate-800">
-            <div className="flex items-center justify-between">
-              <div>
-                <label className="block text-xs font-bold text-slate-200 flex items-center gap-1.5">
-                  <ShoppingBag className="w-3.5 h-3.5 text-emerald-400" />
-                  Volume de Vendas (Qtd. de Clientes / Pedidos)
-                </label>
-                <p className="text-[11px] text-slate-400 mt-0.5">
-                  Quantas vendas foram feitas no dia
-                </p>
-              </div>
-
-              {/* Stepper */}
-              <div className="flex items-center gap-2 bg-slate-900 rounded-xl p-1 border border-slate-750">
-                <button
-                  type="button"
-                  onClick={() => setSalesCount((prev) => Math.max(1, prev - 1))}
-                  className="w-8 h-8 rounded-lg bg-slate-800 text-white font-bold flex items-center justify-center hover:bg-slate-700 active:scale-95 transition"
+                <div
+                  className={`flex h-10 w-10 items-center justify-center rounded-xl mb-1.5 ${
+                    paymentMethod === 'pix'
+                      ? 'bg-emerald-500 text-slate-950'
+                      : 'bg-slate-800 text-emerald-400'
+                  }`}
                 >
-                  -
-                </button>
-                <input
-                  type="number"
-                  min="1"
-                  value={salesCount}
-                  onChange={(e) => setSalesCount(Math.max(1, parseInt(e.target.value) || 1))}
-                  className="w-12 text-center text-sm font-extrabold text-white bg-transparent font-mono focus:outline-none"
-                />
-                <button
-                  type="button"
-                  onClick={() => setSalesCount((prev) => prev + 1)}
-                  className="w-8 h-8 rounded-lg bg-slate-800 text-white font-bold flex items-center justify-center hover:bg-slate-700 active:scale-95 transition"
+                  <QrCode className="w-5 h-5 stroke-[2.5]" />
+                </div>
+                <span className="text-xs font-extrabold">Pix</span>
+              </button>
+
+              {/* DINHEIRO */}
+              <button
+                type="button"
+                onClick={() => setPaymentMethod('cash')}
+                className={`flex flex-col items-center justify-center p-3.5 rounded-2xl border-2 transition cursor-pointer ${
+                  paymentMethod === 'cash'
+                    ? 'bg-amber-500/20 border-amber-500 text-white shadow-lg shadow-amber-950/40'
+                    : 'bg-slate-850 border-slate-800 text-slate-400 hover:text-white hover:bg-slate-800'
+                }`}
+              >
+                <div
+                  className={`flex h-10 w-10 items-center justify-center rounded-xl mb-1.5 ${
+                    paymentMethod === 'cash'
+                      ? 'bg-amber-500 text-slate-950'
+                      : 'bg-slate-800 text-amber-400'
+                  }`}
                 >
-                  +
-                </button>
-              </div>
+                  <Banknote className="w-5 h-5 stroke-[2.5]" />
+                </div>
+                <span className="text-xs font-extrabold">Dinheiro</span>
+              </button>
+
+              {/* CARTÃO */}
+              <button
+                type="button"
+                onClick={() => setPaymentMethod('card')}
+                className={`flex flex-col items-center justify-center p-3.5 rounded-2xl border-2 transition cursor-pointer ${
+                  paymentMethod === 'card'
+                    ? 'bg-blue-500/20 border-blue-500 text-white shadow-lg shadow-blue-950/40'
+                    : 'bg-slate-850 border-slate-800 text-slate-400 hover:text-white hover:bg-slate-800'
+                }`}
+              >
+                <div
+                  className={`flex h-10 w-10 items-center justify-center rounded-xl mb-1.5 ${
+                    paymentMethod === 'card'
+                      ? 'bg-blue-500 text-slate-950'
+                      : 'bg-slate-800 text-blue-400'
+                  }`}
+                >
+                  <CreditCard className="w-5 h-5 stroke-[2.5]" />
+                </div>
+                <span className="text-xs font-extrabold">Cartão</span>
+              </button>
             </div>
-
-            {totalSalesVal > 0 && (
-              <div className="mt-2.5 pt-2 border-t border-slate-800/80 flex items-center justify-between text-xs">
-                <span className="text-slate-400">Ticket Médio por venda:</span>
-                <span className="font-bold text-white font-mono">
-                  {formatCurrency(averageTicket)}
-                </span>
-              </div>
-            )}
           </div>
 
-          {/* Optional Details (Payment Methods & Notes) Toggle */}
-          <div className="pt-1">
-            <button
-              type="button"
-              onClick={() => setShowDetails(!showDetails)}
-              className="flex w-full items-center justify-between text-xs font-semibold text-slate-400 hover:text-slate-200 py-1 transition"
-            >
-              <span>Detalhes Opcionais (Pix, Cartão, Dinheiro, Obs)</span>
-              {showDetails ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-            </button>
-
-            {showDetails && (
-              <div className="mt-2 space-y-2.5 rounded-2xl bg-slate-850 p-3.5 border border-slate-800 animate-in fade-in">
-                <p className="text-[11px] text-slate-400">
-                  Distribua quanto entrou por cada forma de pagamento (opcional):
-                </p>
-                <div className="grid grid-cols-3 gap-2">
-                  <div>
-                    <label className="text-[11px] text-slate-300 font-medium">Pix</label>
-                    <input
-                      type="text"
-                      inputMode="decimal"
-                      placeholder="0,00"
-                      value={pixInput}
-                      onChange={(e) => setPixInput(e.target.value)}
-                      className="w-full mt-1 rounded-xl bg-slate-900 border border-slate-700 py-1.5 px-2.5 text-xs text-white font-mono focus:outline-none focus:border-emerald-500"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-[11px] text-slate-300 font-medium">Cartão</label>
-                    <input
-                      type="text"
-                      inputMode="decimal"
-                      placeholder="0,00"
-                      value={creditInput}
-                      onChange={(e) => setCreditInput(e.target.value)}
-                      className="w-full mt-1 rounded-xl bg-slate-900 border border-slate-700 py-1.5 px-2.5 text-xs text-white font-mono focus:outline-none focus:border-emerald-500"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-[11px] text-slate-300 font-medium">Dinheiro</label>
-                    <input
-                      type="text"
-                      inputMode="decimal"
-                      placeholder="0,00"
-                      value={cashInput}
-                      onChange={(e) => setCashInput(e.target.value)}
-                      className="w-full mt-1 rounded-xl bg-slate-900 border border-slate-700 py-1.5 px-2.5 text-xs text-white font-mono focus:outline-none focus:border-emerald-500"
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="text-[11px] text-slate-300 font-medium">
-                    Observação rápida (ex: Promoção, Chuva, Evento)
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="Alguma nota sobre o dia..."
-                    value={notes}
-                    onChange={(e) => setNotes(e.target.value)}
-                    className="w-full mt-1 rounded-xl bg-slate-900 border border-slate-700 py-1.5 px-3 text-xs text-white focus:outline-none focus:border-emerald-500"
-                  />
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Submit Button */}
+          {/* Submit Action */}
           <div className="pt-2">
             <button
               type="submit"
-              disabled={totalSalesVal <= 0}
-              className="flex w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-emerald-600 via-emerald-500 to-teal-500 py-3.5 px-4 text-sm font-extrabold text-slate-950 shadow-lg shadow-emerald-500/25 hover:from-emerald-500 hover:to-teal-400 active:scale-[0.98] transition cursor-pointer disabled:opacity-40 disabled:pointer-events-none"
+              disabled={currentAmount <= 0}
+              className="flex w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-emerald-600 via-emerald-500 to-teal-400 py-3.5 px-4 text-sm font-extrabold text-slate-950 shadow-lg shadow-emerald-500/25 hover:from-emerald-500 hover:to-teal-300 active:scale-[0.98] transition cursor-pointer disabled:opacity-40 disabled:pointer-events-none"
             >
-              <Check className="w-5 h-5 stroke-[2.5]" />
-              {initialSale ? 'Salvar Alterações' : 'Confirmar Lançamento do Dia'}
+              <Check className="w-5 h-5 stroke-[2.8]" />
+              <span>Salvar Venda</span>
             </button>
           </div>
         </form>
       </div>
+
+      {/* Embedded In-App Calculator */}
+      <CalculatorModal
+        isOpen={isCalcOpen}
+        onClose={() => setIsCalcOpen(false)}
+        onApplyValue={(calculatedVal) => {
+          setAmountInput(calculatedVal.toFixed(2).replace('.', ','));
+        }}
+      />
     </div>
   );
 };

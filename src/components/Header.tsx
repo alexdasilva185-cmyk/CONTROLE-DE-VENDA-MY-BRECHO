@@ -1,6 +1,6 @@
 import React from 'react';
 import { MONTH_NAMES_PT, formatDateFull, getTodayDateString } from '../utils/formatters';
-import { ChevronLeft, ChevronRight, TrendingUp, Calendar, WifiOff, Cloud, CloudCheck, LogIn, LogOut, User } from 'lucide-react';
+import { ChevronLeft, ChevronRight, TrendingUp, Calendar, WifiOff, Cloud, CloudCheck, LogIn, LogOut, User, Calculator } from 'lucide-react';
 import { useOnlineStatus } from '../hooks/useOnlineStatus';
 import { useAuth } from '../context/AuthContext';
 
@@ -11,6 +11,7 @@ interface HeaderProps {
   onPrevMonth: () => void;
   onNextMonth: () => void;
   onOpenNewSale: () => void;
+  onOpenCalculator: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -19,6 +20,7 @@ export const Header: React.FC<HeaderProps> = ({
   selectedMonth,
   onPrevMonth,
   onNextMonth,
+  onOpenCalculator,
 }) => {
   const isOnline = useOnlineStatus();
   const { user, signInWithGoogle, signOutUser } = useAuth();
@@ -86,6 +88,16 @@ export const Header: React.FC<HeaderProps> = ({
               <span>Conectar Nuvem</span>
             </button>
           )}
+
+          {/* Quick Calculator Tool */}
+          <button
+            onClick={onOpenCalculator}
+            className="flex items-center gap-1 bg-slate-800 hover:bg-slate-750 text-emerald-400 border border-slate-700 text-[11px] font-bold px-2.5 py-1 rounded-xl transition cursor-pointer shadow-sm active:scale-95"
+            title="Abrir calculadora de vendas"
+          >
+            <Calculator className="w-3.5 h-3.5" />
+            <span className="hidden xs:inline text-white">Calc</span>
+          </button>
         </div>
       </div>
 

@@ -7,6 +7,7 @@ import { MonthTab } from './components/MonthTab';
 import { GoalsTab } from './components/GoalsTab';
 import { SettingsTab } from './components/SettingsTab';
 import { SaleFormModal } from './components/SaleFormModal';
+import { CalculatorModal } from './components/CalculatorModal';
 import { PWAInstallBanner } from './components/PWAInstallBanner';
 import { DailySale } from './types/sales';
 
@@ -21,9 +22,11 @@ export default function App() {
     setSelectedMonth,
     monthSummary,
     todaySale,
+    allRecentTransactions,
     isLoaded,
     addOrUpdateSale,
     deleteSale,
+    deleteSaleEntry,
     updateSettings,
     clearAllData,
     resetToSampleData,
@@ -33,6 +36,7 @@ export default function App() {
   const [currentTab, setCurrentTab] = useState<NavTab>('today');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [saleToEdit, setSaleToEdit] = useState<DailySale | null>(null);
+  const [isCalculatorOpen, setIsCalculatorOpen] = useState(false);
 
   // Month navigation handlers
   const handlePrevMonth = () => {
@@ -81,6 +85,7 @@ export default function App() {
           onPrevMonth={handlePrevMonth}
           onNextMonth={handleNextMonth}
           onOpenNewSale={() => handleOpenNewSale()}
+          onOpenCalculator={() => setIsCalculatorOpen(true)}
         />
 
         {/* Main Content Area */}
@@ -93,9 +98,11 @@ export default function App() {
             <TodayTab
               todaySale={todaySale}
               allSales={sales}
+              allRecentTransactions={allRecentTransactions}
               monthSummary={monthSummary}
               onOpenNewSale={handleOpenNewSale}
               onDeleteSale={deleteSale}
+              onDeleteSaleEntry={deleteSaleEntry}
             />
           )}
 
@@ -146,6 +153,26 @@ export default function App() {
           initialSale={saleToEdit}
           settings={settings}
           existingSales={sales}
+        />
+
+        {/* Global In-App Quick Calculator */}
+        <CalculatorModal
+          isOpen={isCalculatorOpen}
+          onClose={() => setIsCalculatorOpen(false)}
+          onLaunchAsSale={(calculatedVal) => {
+            handleOpenNewSale({
+              id: '',
+              date: '',
+              totalSales: calculatedVal,
+              cost: 0,
+              profit: 0,
+              profitMargin: 0,
+              salesCount: 1,
+              averageTicket: calculatedVal,
+              createdAt: '',
+              updatedAt: '',
+            });
+          }}
         />
       </div>
     </div>

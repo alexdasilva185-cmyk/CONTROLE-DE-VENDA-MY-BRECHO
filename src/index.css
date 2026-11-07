@@ -46,3 +46,20 @@
 ::-webkit-scrollbar-thumb:hover {
   background: #475569;
 }
+
+/* Ocultar selos/badges e gavetas injetadas automaticamente pela Netlify */
+iframe[src*="netlify"],
+iframe[id*="netlify"],
+[id*="netlify-badge"],
+[class*="netlify-badge"],
+#netlify-drawer-container,
+div[data-netlify-deploy-id],
+div[class*="netlify-feedback"] {
+  display: none !important;
+  visibility: hidden !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+  position: absolute !important;
+  top: -9999px !important;
+  left: -9999px !important;
+}

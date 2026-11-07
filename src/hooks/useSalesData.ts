@@ -100,6 +100,7 @@ export function useSalesData() {
       profit?: number;
       salesCount: number;
       paymentMethods?: DailySale['paymentMethods'];
+      entries?: DailySale['entries'];
       notes?: string;
     }) => {
       const profit =
@@ -123,6 +124,7 @@ export function useSalesData() {
           const existing = prev[existingIndex];
           targetRecord = {
             ...existing,
+            id: existing.id || `sale-${saleInput.date}`,
             date: saleInput.date,
             totalSales: saleInput.totalSales,
             cost: saleInput.cost,
@@ -131,7 +133,8 @@ export function useSalesData() {
             salesCount,
             averageTicket,
             paymentMethods: saleInput.paymentMethods,
-            notes: saleInput.notes,
+            entries: saleInput.entries || existing.entries || [],
+            notes: saleInput.notes || existing.notes || '',
             updatedAt: now,
           };
           nextSales = [...prev];
@@ -147,7 +150,8 @@ export function useSalesData() {
             salesCount,
             averageTicket,
             paymentMethods: saleInput.paymentMethods,
-            notes: saleInput.notes,
+            entries: saleInput.entries || [],
+            notes: saleInput.notes || '',
             createdAt: now,
             updatedAt: now,
           };
@@ -246,9 +250,101 @@ export function useSalesData() {
     return sales.filter((s) => s.date.startsWith(targetPrefix));
   }, [sales, selectedYear, selectedMonth]);
 
+  const deleteSaleEntry = useCallback(
+    async (date: string, entryId: string) => {
+      let updatedDayRecord: DailySale | null = null;
+      setSales((prev) => {
+        const dayIdx = prev.findIndex((s) => s.date === date);
+        if (dayIdx < 0) return prev;
+
+        const day = prev[dayIdx];
+        const updatedEntries = (day.entries || []).filter((e) => e.id !== entryId);
+
+        if (updatedEntries.length === 0) {
+          // If no entries left, remove day or keep 0
+          const filtered = prev.filter((s) => s.date !== date);
+          saveSalesToStorage(filtered);
+          return filtered;
+        }
+
+        // Recalculate totals
+        const newTotal = updatedEntries.reduce((acc, e) => acc + e.amount, 0);
+        const newPix = updatedEntries.filter((e) => e.paymentMethod === 'pix').reduce((acc, e) => acc + e.amount, 0);
+        const newCard = updatedEntries.filter((e) => e.paymentMethod === 'card').reduce((acc, e) => acc + e.amount, 0);
+        const newCash = updatedEntries.filter((e) => e.paymentMethod === 'cash').reduce((acc, e) => acc + e.amount, 0);
+        const marginPct = day.profitMargin || 50;
+        const newProfit = (newTotal * marginPct) / 100;
+        const newCost = newTotal - newProfit;
+
+        updatedDayRecord = {
+          ...day,
+          id: day.id || `sale-${date}`,
+          totalSales: newTotal,
+          cost: newCost,
+          profit: newProfit,
+          salesCount: updatedEntries.length,
+          averageTicket: newTotal / updatedEntries.length,
+          paymentMethods: {
+            pix: newPix > 0 ? newPix : undefined,
+            credit: newCard > 0 ? newCard : undefined,
+            cash: newCash > 0 ? newCash : undefined,
+          },
+          entries: updatedEntries,
+          notes: day.notes || '',
+          updatedAt: new Date().toISOString(),
+        };
+
+        const next = [...prev];
+        next[dayIdx] = updatedDayRecord;
+        saveSalesToStorage(next);
+        return next;
+      });
+
+      if (user && updatedDayRecord) {
+        try {
+          await saveSaleToCloud(user.uid, updatedDayRecord);
+        } catch (err) {
+          console.error('Erro ao atualizar no Firestore:', err);
+        }
+      }
+    },
+    [user]
+  );
+
+  const allRecentTransactions = useMemo(() => {
+    const list: Array<{
+      id: string;
+      amount: number;
+      paymentMethod: 'pix' | 'cash' | 'card';
+      time: string;
+      date: string;
+      createdAt: string;
+    }> = [];
+
+    for (const day of sales) {
+      if (day.entries && day.entries.length > 0) {
+        for (const entry of day.entries) {
+          list.push({ ...entry, date: day.date });
+        }
+      } else if (day.totalSales > 0) {
+        list.push({
+          id: `legacy-${day.id}`,
+          amount: day.totalSales,
+          paymentMethod: (day.paymentMethods?.pix || 0) >= (day.paymentMethods?.cash || 0) ? 'pix' : 'cash',
+          time: '18:00',
+          createdAt: day.createdAt,
+          date: day.date,
+        });
+      }
+    }
+
+    return list.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }, [sales]);
+
   return {
     sales,
     currentMonthSales,
+    allRecentTransactions,
     settings,
     selectedYear,
     selectedMonth,
@@ -261,6 +357,7 @@ export function useSalesData() {
     cloudSynced,
     addOrUpdateSale,
     deleteSale,
+    deleteSaleEntry,
     updateSettings,
     clearAllData,
     resetToSampleData,

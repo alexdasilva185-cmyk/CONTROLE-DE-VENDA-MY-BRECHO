@@ -51,6 +51,30 @@ export function generateInitialSampleSales(): DailySale[] {
     const credit = Math.round(totalSales * 0.3);
     const cash = totalSales - pix - credit;
 
+    const entries = [
+      {
+        id: `entry-${date}-1`,
+        amount: Math.round(pix * 0.6),
+        paymentMethod: 'pix' as const,
+        time: '10:30',
+        createdAt: new Date(year, month - 1, d, 10, 30).toISOString(),
+      },
+      {
+        id: `entry-${date}-2`,
+        amount: Math.round(credit),
+        paymentMethod: 'card' as const,
+        time: '14:15',
+        createdAt: new Date(year, month - 1, d, 14, 15).toISOString(),
+      },
+      {
+        id: `entry-${date}-3`,
+        amount: Math.round(pix * 0.4) + cash,
+        paymentMethod: cash > (pix * 0.4) ? ('cash' as const) : ('pix' as const),
+        time: '18:45',
+        createdAt: new Date(year, month - 1, d, 18, 45).toISOString(),
+      },
+    ];
+
     samples.push({
       id: `sale-${date}`,
       date,
@@ -65,6 +89,7 @@ export function generateInitialSampleSales(): DailySale[] {
         credit,
         cash,
       },
+      entries,
       notes: profile.note,
       createdAt: new Date(year, month - 1, d, 19, 0).toISOString(),
       updatedAt: new Date(year, month - 1, d, 19, 0).toISOString(),

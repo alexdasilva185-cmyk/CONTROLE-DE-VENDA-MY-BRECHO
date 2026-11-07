@@ -188,6 +188,44 @@ export const MonthTab: React.FC<MonthTabProps> = ({
         </div>
       </div>
 
+      {/* Formas de Recebimento do Mês (Pix, Cartão, Dinheiro) */}
+      {(() => {
+        const totalPix = monthSales.reduce((acc, s) => acc + (s.paymentMethods?.pix || 0), 0);
+        const totalCard = monthSales.reduce(
+          (acc, s) => acc + (s.paymentMethods?.credit || 0) + (s.paymentMethods?.debit || 0),
+          0
+        );
+        const totalCash = monthSales.reduce((acc, s) => acc + (s.paymentMethods?.cash || 0), 0);
+
+        return (
+          <div className="rounded-2xl bg-slate-900 border border-slate-800 p-3.5 space-y-2">
+            <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">
+              Recebimentos do Mês por Forma de Pagamento
+            </span>
+            <div className="grid grid-cols-3 gap-2 text-center">
+              <div className="rounded-xl bg-slate-800/80 p-2.5 border border-emerald-900/50">
+                <span className="text-[10px] font-bold text-emerald-400">PIX</span>
+                <p className="text-xs font-bold text-white font-mono mt-0.5">
+                  {formatCurrency(totalPix)}
+                </p>
+              </div>
+              <div className="rounded-xl bg-slate-800/80 p-2.5 border border-blue-900/50">
+                <span className="text-[10px] font-bold text-blue-400">CARTÃO</span>
+                <p className="text-xs font-bold text-white font-mono mt-0.5">
+                  {formatCurrency(totalCard)}
+                </p>
+              </div>
+              <div className="rounded-xl bg-slate-800/80 p-2.5 border border-amber-900/50">
+                <span className="text-[10px] font-bold text-amber-400">DINHEIRO</span>
+                <p className="text-xs font-bold text-white font-mono mt-0.5">
+                  {formatCurrency(totalCash)}
+                </p>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
       {/* Projection Card */}
       {summary.projectedRevenue > summary.totalRevenue && (
         <div className="rounded-2xl bg-gradient-to-r from-blue-950/60 to-slate-900 border border-blue-800/40 p-4">
