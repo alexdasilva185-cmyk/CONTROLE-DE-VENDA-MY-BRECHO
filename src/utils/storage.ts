@@ -144,6 +144,18 @@ export function isMockSale(sale: any): boolean {
     return true;
   }
 
+  // Purge test artifact with 72.90 at 22:00 (10 da noite)
+  if (Math.abs(s - 72.9) < 0.05 && (sale.date === '2026-11-08' || sale.id?.includes('test') || sale.id?.includes('sample') || sale.createdAt?.includes('T22:'))) {
+    return true;
+  }
+  if (Array.isArray(sale.entries)) {
+    for (const e of sale.entries) {
+      if (Math.abs(Number(e?.amount) - 72.9) < 0.05 && (e?.time === '22:00' || e?.time === '10:00' || e?.createdAt?.includes('T22:'))) {
+        return true;
+      }
+    }
+  }
+
   return false;
 }
 

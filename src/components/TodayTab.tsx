@@ -69,8 +69,21 @@ export const TodayTab: React.FC<TodayTabProps> = ({
   const { user, signInWithGoogle } = useAuth();
   const todayStr = getTodayDateString();
   const [copiedWhatsApp, setCopiedWhatsApp] = useState(false);
+  const [feedbackToast, setFeedbackToast] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<'individual' | 'daily'>('individual');
   const [periodOption, setPeriodOption] = useState<'today' | '7d' | '15d' | '30d'>('today');
+
+  const handleDeleteEntryWithFeedback = (date: string, id: string) => {
+    onDeleteSaleEntry(date, id);
+    setFeedbackToast('Lançamento excluído com sucesso');
+    setTimeout(() => setFeedbackToast(null), 2500);
+  };
+
+  const handleDeleteSaleWithFeedback = (id: string) => {
+    onDeleteSale(id);
+    setFeedbackToast('Venda do dia excluída');
+    setTimeout(() => setFeedbackToast(null), 2500);
+  };
 
   const periodStats = useMemo(() => {
     const isToday = periodOption === 'today';
@@ -512,7 +525,7 @@ export const TodayTab: React.FC<TodayTabProps> = ({
                       type="button"
                       onClick={(e) => {
                         e.stopPropagation();
-                        onDeleteSaleEntry(tx.date, tx.id);
+                        handleDeleteEntryWithFeedback(tx.date, tx.id);
                       }}
                       className="p-2.5 text-slate-400 hover:text-rose-400 active:text-rose-500 hover:bg-rose-950/40 rounded-xl transition cursor-pointer active:scale-95 touch-manipulation"
                       title="Excluir este lançamento"
@@ -606,7 +619,7 @@ export const TodayTab: React.FC<TodayTabProps> = ({
                         type="button"
                         onClick={(e) => {
                           e.stopPropagation();
-                          onDeleteSale(sale.id);
+                          handleDeleteSaleWithFeedback(sale.id);
                         }}
                         className="p-1.5 text-slate-400 hover:text-rose-400 active:text-rose-500 hover:bg-rose-950/40 rounded-lg transition cursor-pointer active:scale-95 touch-manipulation"
                         title="Excluir dia"
@@ -622,6 +635,15 @@ export const TodayTab: React.FC<TodayTabProps> = ({
           </div>
         )}
       </div>
+
+      {/* Floating feedback toast */}
+      {feedbackToast && (
+        <div className="fixed bottom-20 left-1/2 -translate-x-1/2 z-50 bg-slate-900 border border-emerald-500/50 text-emerald-300 px-4 py-2 rounded-2xl text-xs font-bold shadow-2xl flex items-center gap-2 animate-in fade-in slide-in-from-bottom-2">
+          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+          <span>{feedbackToast}</span>
+        </div>
+      )}
     </div>
   );
 };
+

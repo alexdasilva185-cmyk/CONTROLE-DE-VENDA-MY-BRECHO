@@ -66,12 +66,39 @@ export function formatPercent(value: number): string {
   return `${value.toFixed(1).replace('.', ',')}%`;
 }
 
+// Return current date in Brazil (America/Sao_Paulo / Horário de Brasília) as YYYY-MM-DD
 export function getTodayDateString(): string {
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, '0');
-  const day = String(now.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
+  try {
+    const formatter = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'America/Sao_Paulo',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    });
+    return formatter.format(new Date());
+  } catch {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const day = String(now.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }
+}
+
+// Return current time in Brazil (America/Sao_Paulo / Horário de Brasília) as HH:mm
+export function getCurrentBrazilianTimeString(date: Date = new Date()): string {
+  try {
+    return new Intl.DateTimeFormat('pt-BR', {
+      timeZone: 'America/Sao_Paulo',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    }).format(date);
+  } catch {
+    const h = String(date.getHours()).padStart(2, '0');
+    const m = String(date.getMinutes()).padStart(2, '0');
+    return `${h}:${m}`;
+  }
 }
 
 export function formatDateBR(dateString: string): string {

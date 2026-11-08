@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { DailySale, AppSettings, CostEntry } from '../types/sales';
 import {
   loadSalesFromStorage,
@@ -21,7 +21,7 @@ import {
 } from '../lib/firestoreService';
 import { useAuth } from '../context/AuthContext';
 import { calculateMonthSummary } from '../utils/calculations';
-import { getTodayDateString } from '../utils/formatters';
+import { getTodayDateString, getCurrentBrazilianTimeString } from '../utils/formatters';
 
 function applyMarginToSales(salesList: DailySale[], marginPct: number): DailySale[] {
   if (isNaN(marginPct) || marginPct <= 0 || marginPct > 100) return salesList;
@@ -63,6 +63,12 @@ export function useSalesData() {
   const [isSyncing, setIsSyncing] = useState(false);
   const [cloudSynced, setCloudSynced] = useState(false);
 
+  // Synchronous reference to current sales to eliminate async state closure bugs
+  const salesRef = useRef<DailySale[]>(sales);
+  useEffect(() => {
+    salesRef.current = sales;
+  }, [sales]);
+
   // Initial load from local storage
   useEffect(() => {
     const loadedSales = loadSalesFromStorage();
@@ -72,6 +78,7 @@ export function useSalesData() {
     // Harmonize loaded sales with active profit margin
     const aligned = applyMarginToSales(loadedSales, activeMargin);
     setSales(aligned);
+    salesRef.current = aligned;
     saveSalesToStorage(aligned);
 
     setSettings(loadedSettings);
@@ -111,6 +118,7 @@ export function useSalesData() {
 
         // Cloud is authoritative: sync cloud sales
         setSales(cloudSales);
+        salesRef.current = cloudSales;
         saveSalesToStorage(cloudSales);
         setIsSyncing(false);
         setCloudSynced(true);
@@ -132,6 +140,7 @@ export function useSalesData() {
         if (cloudSettings.defaultProfitMargin) {
           setSales((prev) => {
             const aligned = applyMarginToSales(prev, cloudSettings.defaultProfitMargin);
+            salesRef.current = aligned;
             saveSalesToStorage(aligned);
             return aligned;
           });
@@ -148,7 +157,7 @@ export function useSalesData() {
     };
   }, [user]);
 
-  // Sync to storage & cloud
+  // Sync to storage & cloud directly and immediately
   const addOrUpdateSale = useCallback(
     async (saleInput: {
       date: string;
@@ -163,25 +172,20 @@ export function useSalesData() {
       const profit =
         saleInput.profit !== undefined
           ? saleInput.profit
-          : saleInput.totalSales - saleInput.cost;
+          : Math.round((saleInput.totalSales - saleInput.cost) * 100) / 100;
       const profitMargin =
         saleInput.totalSales > 0 ? (profit / saleInput.totalSales) * 100 : 0;
       const salesCount = Math.max(1, saleInput.salesCount || 1);
       const averageTicket = saleInput.totalSales / salesCount;
 
       const now = new Date().toISOString();
+      const deterministicId = `sale-${saleInput.date}`;
 
-      let targetRecord: DailySale;
+      // Read current state synchronously from ref
+      const existing = salesRef.current.find((s) => s.date === saleInput.date);
 
-      setSales((prev) => {
-        const existingIndex = prev.findIndex((s) => s.date === saleInput.date);
-        let nextSales: DailySale[];
-
-        const deterministicId = `sale-${saleInput.date}`;
-
-        if (existingIndex >= 0) {
-          const existing = prev[existingIndex];
-          targetRecord = {
+      const targetRecord: DailySale = existing
+        ? {
             ...existing,
             id: deterministicId,
             date: saleInput.date,
@@ -195,11 +199,8 @@ export function useSalesData() {
             entries: saleInput.entries || existing.entries || [],
             notes: saleInput.notes || existing.notes || '',
             updatedAt: now,
-          };
-          nextSales = [...prev];
-          nextSales[existingIndex] = targetRecord;
-        } else {
-          targetRecord = {
+          }
+        : {
             id: deterministicId,
             date: saleInput.date,
             totalSales: saleInput.totalSales,
@@ -214,20 +215,30 @@ export function useSalesData() {
             createdAt: now,
             updatedAt: now,
           };
+
+      // Optimistic local state update
+      setSales((prev) => {
+        const existingIndex = prev.findIndex((s) => s.date === saleInput.date);
+        let nextSales: DailySale[];
+        if (existingIndex >= 0) {
+          nextSales = [...prev];
+          nextSales[existingIndex] = targetRecord;
+        } else {
           nextSales = [targetRecord, ...prev];
         }
-
         const sorted = nextSales.sort((a, b) => b.date.localeCompare(a.date));
+        salesRef.current = sorted;
         saveSalesToStorage(sorted);
         return sorted;
       });
 
-      // Save to cloud if user is logged in
+      // Save to cloud immediately if user is authenticated
       if (user) {
         try {
-          await saveSaleToCloud(user.uid, targetRecord!);
+          await saveSaleToCloud(user.uid, targetRecord);
+          console.log('[Firestore] Venda gravada na nuvem com sucesso:', deterministicId);
         } catch (err) {
-          console.error('Erro ao salvar no Firestore:', err);
+          console.error('[Firestore] Erro ao salvar no Firestore:', err);
         }
       }
     },
@@ -236,10 +247,12 @@ export function useSalesData() {
 
   const deleteSale = useCallback(
     async (id: string) => {
-      let saleToDelete: DailySale | undefined;
+      const saleToDelete = salesRef.current.find((s) => s.id === id);
+      const targetDate = saleToDelete?.date;
+
       setSales((prev) => {
-        saleToDelete = prev.find((s) => s.id === id);
-        const filtered = prev.filter((s) => s.id !== id);
+        const filtered = prev.filter((s) => s.id !== id && (targetDate ? s.date !== targetDate : true));
+        salesRef.current = filtered;
         saveSalesToStorage(filtered);
         return filtered;
       });
@@ -247,17 +260,19 @@ export function useSalesData() {
       if (user) {
         try {
           await deleteSaleFromCloud(user.uid, id);
-          if (saleToDelete?.date) {
-            await deleteSaleFromCloud(user.uid, `sale-${saleToDelete.date}`);
-            await deleteSaleFromCloud(user.uid, saleToDelete.date);
+          if (targetDate) {
+            await deleteSaleFromCloud(user.uid, `sale-${targetDate}`);
+            await deleteSaleFromCloud(user.uid, targetDate);
           }
+          console.log('[Firestore] Venda excluída na nuvem:', id);
         } catch (err) {
-          console.error('Erro ao deletar no Firestore:', err);
+          console.error('[Firestore] Erro ao deletar no Firestore:', err);
         }
       }
     },
     [user]
   );
+
 
   const updateSettings = useCallback(
     async (partial: Partial<AppSettings>) => {
@@ -363,65 +378,67 @@ export function useSalesData() {
         amount,
         description: costInput.description.trim() || 'Despesa / Custo',
         category: costInput.category || 'Outros',
-        time: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
+        time: getCurrentBrazilianTimeString(),
         createdAt: now,
       };
 
+      const deterministicId = `sale-${costInput.date}`;
+      const existing = salesRef.current.find((s) => s.date === costInput.date);
+
       let targetRecord: DailySale;
+      if (existing) {
+        const newCost = (existing.cost || 0) + amount;
+        const newProfit = (existing.totalSales || 0) - newCost;
+        const newMargin = existing.totalSales > 0 ? (newProfit / existing.totalSales) * 100 : 0;
+        const updatedCostEntries = [...(existing.costEntries || []), newCostEntry];
+
+        targetRecord = {
+          ...existing,
+          id: deterministicId,
+          cost: newCost,
+          profit: newProfit,
+          profitMargin: newMargin,
+          costEntries: updatedCostEntries,
+          updatedAt: now,
+        };
+      } else {
+        targetRecord = {
+          id: deterministicId,
+          date: costInput.date,
+          totalSales: 0,
+          cost: amount,
+          profit: -amount,
+          profitMargin: 0,
+          salesCount: 0,
+          averageTicket: 0,
+          costEntries: [newCostEntry],
+          notes: costInput.description,
+          createdAt: now,
+          updatedAt: now,
+        };
+      }
 
       setSales((prev) => {
         const existingIndex = prev.findIndex((s) => s.date === costInput.date);
         let nextSales: DailySale[];
-
-        const deterministicId = `sale-${costInput.date}`;
-
         if (existingIndex >= 0) {
-          const existing = prev[existingIndex];
-          const newCost = (existing.cost || 0) + amount;
-          const newProfit = (existing.totalSales || 0) - newCost;
-          const newMargin = existing.totalSales > 0 ? (newProfit / existing.totalSales) * 100 : 0;
-          const updatedCostEntries = [...(existing.costEntries || []), newCostEntry];
-
-          targetRecord = {
-            ...existing,
-            id: deterministicId,
-            cost: newCost,
-            profit: newProfit,
-            profitMargin: newMargin,
-            costEntries: updatedCostEntries,
-            updatedAt: now,
-          };
           nextSales = [...prev];
           nextSales[existingIndex] = targetRecord;
         } else {
-          // Create new day record with cost
-          targetRecord = {
-            id: deterministicId,
-            date: costInput.date,
-            totalSales: 0,
-            cost: amount,
-            profit: -amount,
-            profitMargin: 0,
-            salesCount: 0,
-            averageTicket: 0,
-            costEntries: [newCostEntry],
-            notes: costInput.description,
-            createdAt: now,
-            updatedAt: now,
-          };
           nextSales = [targetRecord, ...prev];
         }
-
         const sorted = nextSales.sort((a, b) => b.date.localeCompare(a.date));
+        salesRef.current = sorted;
         saveSalesToStorage(sorted);
         return sorted;
       });
 
       if (user) {
         try {
-          await saveSaleToCloud(user.uid, targetRecord!);
+          await saveSaleToCloud(user.uid, targetRecord);
+          console.log('[Firestore] Custo gravado com sucesso no Firestore:', targetRecord.id);
         } catch (err) {
-          console.error('Erro ao salvar custo no Firestore:', err);
+          console.error('[Firestore] Erro ao salvar custo no Firestore:', err);
         }
       }
     },
@@ -430,31 +447,41 @@ export function useSalesData() {
 
   const deleteCostEntry = useCallback(
     async (date: string, costId: string) => {
-      let updatedDayRecord: DailySale | null = null;
-      let dayToDeleteId: string | null = null;
+      const day = salesRef.current.find((s) => s.date === date);
+      if (!day) return;
 
-      setSales((prev) => {
-        const dayIdx = prev.findIndex((s) => s.date === date);
-        if (dayIdx < 0) return prev;
+      const costToRemove = (day.costEntries || []).find((c) => c.id === costId);
+      const amountToRemove = costToRemove ? costToRemove.amount : 0;
+      const updatedCostEntries = (day.costEntries || []).filter((c) => c.id !== costId);
+      const newCost = Math.max(0, (day.cost || 0) - amountToRemove);
+      const newProfit = (day.totalSales || 0) - newCost;
+      const newMargin = day.totalSales > 0 ? (newProfit / day.totalSales) * 100 : 0;
 
-        const day = prev[dayIdx];
-        const costToRemove = (day.costEntries || []).find((c) => c.id === costId);
-        const amountToRemove = costToRemove ? costToRemove.amount : 0;
-        const updatedCostEntries = (day.costEntries || []).filter((c) => c.id !== costId);
-        const newCost = Math.max(0, (day.cost || 0) - amountToRemove);
-        const newProfit = (day.totalSales || 0) - newCost;
-        const newMargin = day.totalSales > 0 ? (newProfit / day.totalSales) * 100 : 0;
+      const shouldDeleteDay = (day.totalSales === 0 || !day.totalSales) && newCost === 0;
+      const dayId = day.id || `sale-${date}`;
 
-        // If no sales AND no costs remain, remove day record
-        if ((day.totalSales === 0 || !day.totalSales) && newCost === 0) {
-          dayToDeleteId = day.id || `sale-${date}`;
+      if (shouldDeleteDay) {
+        setSales((prev) => {
           const filtered = prev.filter((s) => s.date !== date);
+          salesRef.current = filtered;
           saveSalesToStorage(filtered);
           return filtered;
-        }
+        });
 
-        updatedDayRecord = {
+        if (user) {
+          try {
+            await deleteSaleFromCloud(user.uid, dayId);
+            await deleteSaleFromCloud(user.uid, `sale-${date}`);
+            await deleteSaleFromCloud(user.uid, date);
+            console.log('[Firestore] Registro de dia sem vendas/custos removido:', date);
+          } catch (err) {
+            console.error('[Firestore] Erro ao deletar no Firestore:', err);
+          }
+        }
+      } else {
+        const updatedDayRecord: DailySale = {
           ...day,
+          id: dayId,
           cost: newCost,
           profit: newProfit,
           profitMargin: newMargin,
@@ -462,22 +489,21 @@ export function useSalesData() {
           updatedAt: new Date().toISOString(),
         };
 
-        const next = [...prev];
-        next[dayIdx] = updatedDayRecord;
-        saveSalesToStorage(next);
-        return next;
-      });
+        setSales((prev) => {
+          const idx = prev.findIndex((s) => s.date === date);
+          const next = idx >= 0 ? prev.map((s, i) => (i === idx ? updatedDayRecord : s)) : prev;
+          salesRef.current = next;
+          saveSalesToStorage(next);
+          return next;
+        });
 
-      if (user) {
-        try {
-          if (dayToDeleteId) {
-            await deleteSaleFromCloud(user.uid, dayToDeleteId);
-            await deleteSaleFromCloud(user.uid, `sale-${date}`);
-          } else if (updatedDayRecord) {
+        if (user) {
+          try {
             await saveSaleToCloud(user.uid, updatedDayRecord);
+            console.log('[Firestore] Custo excluído e dia atualizado no Firestore:', date);
+          } catch (err) {
+            console.error('[Firestore] Erro ao salvar atualização de custo no Firestore:', err);
           }
-        } catch (err) {
-          console.error('Erro ao sincronizar exclusão de custo no Firestore:', err);
         }
       }
     },
@@ -500,56 +526,65 @@ export function useSalesData() {
 
   const deleteSaleEntry = useCallback(
     async (date: string, entryId: string) => {
-      let updatedDayRecord: DailySale | null = null;
-      let dayToDeleteId: string | null = null;
+      const day = salesRef.current.find((s) => s.date === date);
+      if (!day) return;
 
-      setSales((prev) => {
-        const dayIdx = prev.findIndex((s) => s.date === date);
-        if (dayIdx < 0) return prev;
+      const dayId = day.id || `sale-${date}`;
+      let entries = [...(day.entries || [])];
 
-        const day = prev[dayIdx];
-        let entries = [...(day.entries || [])];
+      // 1. Match entry by exact id
+      let entryIndex = entries.findIndex((e) => e.id === entryId);
 
-        // 1. Match entry by exact id
-        let entryIndex = entries.findIndex((e) => e.id === entryId);
+      // 2. If not found by exact id (e.g. synthesized or legacy id), match by suffix
+      if (entryIndex < 0 && (entryId.startsWith('entry-') || entryId.includes('-'))) {
+        entryIndex = entries.findIndex((e) => {
+          if (entryId.endsWith('-pix') && e.paymentMethod === 'pix') return true;
+          if (entryId.endsWith('-card') && e.paymentMethod === 'card') return true;
+          if (entryId.endsWith('-cash') && e.paymentMethod === 'cash') return true;
+          return false;
+        });
+      }
 
-        // 2. If not found by exact id (e.g. synthesized id), match by suffix or amount
-        if (entryIndex < 0 && entryId.startsWith('entry-')) {
-          entryIndex = entries.findIndex((e) => {
-            if (entryId.endsWith('-pix') && e.paymentMethod === 'pix') return true;
-            if (entryId.endsWith('-card') && e.paymentMethod === 'card') return true;
-            if (entryId.endsWith('-cash') && e.paymentMethod === 'cash') return true;
-            return false;
-          });
-        }
+      if (entryIndex >= 0) {
+        entries.splice(entryIndex, 1);
+      } else if (entries.length > 0) {
+        // If still not matched, remove the first entry
+        entries.shift();
+      }
 
-        if (entryIndex >= 0) {
-          entries.splice(entryIndex, 1);
-        } else if (entries.length > 0) {
-          // If still not matched, remove the first entry
-          entries.shift();
-        }
+      const shouldDeleteDay = entries.length === 0 || entryId.startsWith('legacy-');
 
-        // If no entries remain, or if it was a legacy single record
-        if (entries.length === 0 || entryId.startsWith('legacy-')) {
-          dayToDeleteId = day.id || `sale-${date}`;
+      if (shouldDeleteDay) {
+        setSales((prev) => {
           const filtered = prev.filter((s) => s.date !== date);
+          salesRef.current = filtered;
           saveSalesToStorage(filtered);
           return filtered;
-        }
+        });
 
+        if (user) {
+          try {
+            await deleteSaleFromCloud(user.uid, dayId);
+            await deleteSaleFromCloud(user.uid, `sale-${date}`);
+            await deleteSaleFromCloud(user.uid, date);
+            console.log('[Firestore] Venda inteira do dia removida com sucesso:', date);
+          } catch (err) {
+            console.error('[Firestore] Erro ao sincronizar exclusão com o Firestore:', err);
+          }
+        }
+      } else {
         // Recalculate totals
         const newTotal = entries.reduce((acc, e) => acc + (Number(e.amount) || 0), 0);
         const newPix = entries.filter((e) => e.paymentMethod === 'pix').reduce((acc, e) => acc + (Number(e.amount) || 0), 0);
         const newCard = entries.filter((e) => e.paymentMethod === 'card').reduce((acc, e) => acc + (Number(e.amount) || 0), 0);
         const newCash = entries.filter((e) => e.paymentMethod === 'cash').reduce((acc, e) => acc + (Number(e.amount) || 0), 0);
-        const marginPct = day.profitMargin || 50;
-        const newProfit = (newTotal * marginPct) / 100;
-        const newCost = newTotal - newProfit;
+        const marginPct = day.profitMargin || 80;
+        const newProfit = Math.round(((newTotal * marginPct) / 100) * 100) / 100;
+        const newCost = Math.round((newTotal - newProfit) * 100) / 100;
 
-        updatedDayRecord = {
+        const updatedDayRecord: DailySale = {
           ...day,
-          id: day.id || `sale-${date}`,
+          id: dayId,
           totalSales: newTotal,
           cost: newCost,
           profit: newProfit,
@@ -565,28 +600,27 @@ export function useSalesData() {
           updatedAt: new Date().toISOString(),
         };
 
-        const next = [...prev];
-        next[dayIdx] = updatedDayRecord;
-        saveSalesToStorage(next);
-        return next;
-      });
+        setSales((prev) => {
+          const idx = prev.findIndex((s) => s.date === date);
+          const next = idx >= 0 ? prev.map((s, i) => (i === idx ? updatedDayRecord : s)) : prev;
+          salesRef.current = next;
+          saveSalesToStorage(next);
+          return next;
+        });
 
-      if (user) {
-        try {
-          if (dayToDeleteId) {
-            await deleteSaleFromCloud(user.uid, dayToDeleteId);
-            await deleteSaleFromCloud(user.uid, `sale-${date}`);
-            await deleteSaleFromCloud(user.uid, date);
-          } else if (updatedDayRecord) {
+        if (user) {
+          try {
             await saveSaleToCloud(user.uid, updatedDayRecord);
+            console.log('[Firestore] Lançamento individual excluído e dia recalculado na nuvem:', date, newTotal);
+          } catch (err) {
+            console.error('[Firestore] Erro ao sincronizar exclusão com o Firestore:', err);
           }
-        } catch (err) {
-          console.error('Erro ao sincronizar exclusão com o Firestore:', err);
         }
       }
     },
     [user]
   );
+
 
   const allRecentTransactions = useMemo(() => {
     const list: Array<{

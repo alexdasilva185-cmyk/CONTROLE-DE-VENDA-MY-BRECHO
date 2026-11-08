@@ -1,7 +1,12 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { DailySale, AppSettings } from '../types/sales';
-import { formatCurrency, getTodayDateString, parseBRInputToNumber } from '../utils/formatters';
-import { X, Check, DollarSign, Calendar, Sparkles, QrCode, Banknote, CreditCard, Calculator } from 'lucide-react';
+import {
+  formatCurrency,
+  getTodayDateString,
+  getCurrentBrazilianTimeString,
+  parseBRInputToNumber,
+} from '../utils/formatters';
+import { X, Check, DollarSign, Calendar, Sparkles, QrCode, Banknote, CreditCard, Calculator, Clock } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { CalculatorModal } from './CalculatorModal';
 
@@ -37,6 +42,7 @@ export const SaleFormModal: React.FC<SaleFormModalProps> = ({
 
   // Date state
   const [date, setDate] = useState<string>(todayStr);
+  const [time, setTime] = useState<string>(() => getCurrentBrazilianTimeString());
 
   // Value input
   const [amountInput, setAmountInput] = useState<string>('');
@@ -60,6 +66,7 @@ export const SaleFormModal: React.FC<SaleFormModalProps> = ({
     if (initialSale) {
       setDate(initialSale.date);
       setAmountInput(initialSale.totalSales.toFixed(2).replace('.', ','));
+      setTime(getCurrentBrazilianTimeString());
       // Detect dominant method if editing
       if (initialSale.paymentMethods?.cash && initialSale.paymentMethods.cash > (initialSale.paymentMethods.pix || 0)) {
         setPaymentMethod('cash');
@@ -70,6 +77,7 @@ export const SaleFormModal: React.FC<SaleFormModalProps> = ({
       }
     } else {
       setDate(todayStr);
+      setTime(getCurrentBrazilianTimeString());
       setAmountInput('');
       setPaymentMethod('pix');
     }
@@ -86,7 +94,7 @@ export const SaleFormModal: React.FC<SaleFormModalProps> = ({
     // Check if there is already an existing record for this date
     const existing = existingSales.find((s) => s.date === date);
 
-    const marginPct = settings.defaultProfitMargin || 50;
+    const marginPct = settings.defaultProfitMargin || 80;
 
     let finalTotalSales = currentAmount;
     let finalSalesCount = 1;
@@ -113,14 +121,13 @@ export const SaleFormModal: React.FC<SaleFormModalProps> = ({
       finalCash = (existing.paymentMethods?.cash || 0) + (paymentMethod === 'cash' ? currentAmount : 0);
     }
 
-    const now = new Date();
-    const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+    const timeStr = time.trim() || getCurrentBrazilianTimeString();
     const newEntry = {
-      id: `entry-${Date.now()}`,
+      id: `entry-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       amount: currentAmount,
       paymentMethod,
       time: timeStr,
-      createdAt: now.toISOString(),
+      createdAt: new Date().toISOString(),
     };
 
     let finalEntries = existing?.entries ? [newEntry, ...existing.entries] : [newEntry];
@@ -128,8 +135,8 @@ export const SaleFormModal: React.FC<SaleFormModalProps> = ({
       finalEntries = initialSale.entries && initialSale.entries.length > 0 ? initialSale.entries : [newEntry];
     }
 
-    const calculatedProfit = (finalTotalSales * marginPct) / 100;
-    const calculatedCost = finalTotalSales - calculatedProfit;
+    const calculatedProfit = Math.round(((finalTotalSales * marginPct) / 100) * 100) / 100;
+    const calculatedCost = Math.round((finalTotalSales - calculatedProfit) * 100) / 100;
 
     onSave({
       date,
@@ -221,6 +228,21 @@ export const SaleFormModal: React.FC<SaleFormModalProps> = ({
                 value={date}
                 onChange={(e) => setDate(e.target.value)}
                 className="w-full py-2 px-2 text-xs font-semibold rounded-xl bg-slate-800/60 border border-slate-700 text-slate-200 focus:outline-none focus:border-emerald-500"
+              />
+            </div>
+
+            {/* Time Indicator & Adjuster (Horário de Brasília) */}
+            <div className="flex items-center justify-between mt-2 px-1 text-[11px] text-slate-400">
+              <span className="flex items-center gap-1.5">
+                <Clock className="w-3.5 h-3.5 text-emerald-400" />
+                Horário da venda (Brasília):
+              </span>
+              <input
+                type="time"
+                value={time}
+                onChange={(e) => setTime(e.target.value)}
+                className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-0.5 text-xs text-emerald-300 font-mono focus:outline-none focus:border-emerald-500"
+                title="Horário do lançamento"
               />
             </div>
           </div>

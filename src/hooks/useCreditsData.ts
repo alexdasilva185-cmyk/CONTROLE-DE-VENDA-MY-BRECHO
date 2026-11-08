@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { CustomerCredit } from '../types/credits';
 import { useAuth } from '../context/AuthContext';
 import {
@@ -6,6 +6,7 @@ import {
   deleteCreditFromCloud,
   subscribeToUserCredits,
 } from '../lib/firestoreCreditsService';
+import { getCurrentBrazilianTimeString, getTodayDateString } from '../utils/formatters';
 
 const STORAGE_KEY_CREDITS = 'minhas_vendas_credits_v1';
 
@@ -33,11 +34,17 @@ export function useCreditsData() {
   const { user } = useAuth();
   const [credits, setCredits] = useState<CustomerCredit[]>([]);
   const [isLoaded, setIsLoaded] = useState(false);
+  const creditsRef = useRef<CustomerCredit[]>(credits);
+
+  useEffect(() => {
+    creditsRef.current = credits;
+  }, [credits]);
 
   // Load from localStorage on mount
   useEffect(() => {
     const local = loadCreditsFromStorage();
     setCredits(local);
+    creditsRef.current = local;
     setIsLoaded(true);
   }, []);
 
@@ -49,6 +56,7 @@ export function useCreditsData() {
       user.uid,
       (cloudCredits) => {
         setCredits(cloudCredits);
+        creditsRef.current = cloudCredits;
         saveCreditsToStorage(cloudCredits);
       },
       (err) => {
@@ -85,6 +93,7 @@ export function useCreditsData() {
 
       setCredits((prev) => {
         const next = [newCredit, ...prev];
+        creditsRef.current = next;
         saveCreditsToStorage(next);
         return next;
       });
@@ -105,42 +114,40 @@ export function useCreditsData() {
   // Deduct / use credit
   const deductCredit = useCallback(
     async (creditId: string, amountUsed: number, notes?: string) => {
-      let updatedRecord: CustomerCredit | null = null;
+      const currentList = creditsRef.current;
+      const current = currentList.find((c) => c.id === creditId);
+      if (!current) return null;
+
       const now = new Date();
+      const sanitizedUsage = Math.min(current.remainingAmount, Math.max(0, amountUsed));
+      const newRemaining = Math.max(0, current.remainingAmount - sanitizedUsage);
+      const newStatus: CustomerCredit['status'] = newRemaining <= 0.01 ? 'used' : 'active';
+
+      const newUsage = {
+        id: `usage-${Date.now()}`,
+        amount: sanitizedUsage,
+        date: getTodayDateString(),
+        time: getCurrentBrazilianTimeString(),
+        notes: notes || 'Uso de crédito em compras',
+        createdAt: now.toISOString(),
+      };
+
+      const updatedRecord: CustomerCredit = {
+        ...current,
+        remainingAmount: newRemaining,
+        status: newStatus,
+        usages: [...(current.usages || []), newUsage],
+        updatedAt: now.toISOString(),
+      };
 
       setCredits((prev) => {
-        const index = prev.findIndex((c) => c.id === creditId);
-        if (index < 0) return prev;
-
-        const current = prev[index];
-        const sanitizedUsage = Math.min(current.remainingAmount, Math.max(0, amountUsed));
-        const newRemaining = Math.max(0, current.remainingAmount - sanitizedUsage);
-        const newStatus: CustomerCredit['status'] = newRemaining <= 0.01 ? 'used' : 'active';
-
-        const newUsage = {
-          id: `usage-${Date.now()}`,
-          amount: sanitizedUsage,
-          date: now.toISOString().split('T')[0],
-          time: now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
-          notes: notes || 'Uso de crédito em compras',
-          createdAt: now.toISOString(),
-        };
-
-        updatedRecord = {
-          ...current,
-          remainingAmount: newRemaining,
-          status: newStatus,
-          usages: [...(current.usages || []), newUsage],
-          updatedAt: now.toISOString(),
-        };
-
-        const next = [...prev];
-        next[index] = updatedRecord;
+        const next = prev.map((c) => (c.id === creditId ? updatedRecord : c));
+        creditsRef.current = next;
         saveCreditsToStorage(next);
         return next;
       });
 
-      if (user && updatedRecord) {
+      if (user) {
         try {
           await saveCreditToCloud(user.uid, updatedRecord);
         } catch (err) {
@@ -152,6 +159,7 @@ export function useCreditsData() {
     },
     [user]
   );
+
 
   // Delete credit
   const deleteCredit = useCallback(

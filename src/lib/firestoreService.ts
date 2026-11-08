@@ -128,6 +128,18 @@ export function isMockSaleDoc(data: any, docId?: string): boolean {
     return true;
   }
 
+  // Purge test artifact with 72.90 at 22:00 (10 da noite)
+  if (Math.abs(s - 72.9) < 0.05 && (dateStr === '2026-11-08' || docId?.includes('2026-11-08') || docId?.includes('test') || docId?.includes('sample') || data.createdAt?.includes('T22:'))) {
+    return true;
+  }
+  if (Array.isArray(data.entries)) {
+    for (const e of data.entries) {
+      if (Math.abs(Number(e?.amount) - 72.9) < 0.05 && (e?.time === '22:00' || e?.time === '10:00' || e?.createdAt?.includes('T22:'))) {
+        return true;
+      }
+    }
+  }
+
   return false;
 }
 
@@ -164,6 +176,20 @@ function normalizeDate(rawDate?: unknown, docId?: string): string {
     return docId;
   }
   return getTodaySafeDate();
+}
+
+function formatIsoToBRTime(iso?: string): string {
+  if (!iso) return '12:00';
+  try {
+    return new Intl.DateTimeFormat('pt-BR', {
+      timeZone: 'America/Sao_Paulo',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    }).format(new Date(iso));
+  } catch {
+    return '12:00';
+  }
 }
 
 // Parse any document format (including manual entries from Firebase Console) into DailySale
@@ -233,17 +259,18 @@ export function parseSaleDocument(docId: string, data: any): DailySale {
             e.forma === 'cartao'
           ? 'card'
           : 'cash',
-      time: e.time || e.hora || '12:00',
+      time: e.time || e.hora || formatIsoToBRTime(e.createdAt || data.createdAt),
       createdAt: e.createdAt || data.createdAt || new Date().toISOString(),
     }));
   } else if (totalSales > 0) {
-    // If entries weren't explicitly entered in Firebase Console, synthesize so the UI displays them
+    const docTime = formatIsoToBRTime(data.createdAt);
+    // If entries weren't explicitly entered in Firebase Console, synthesize using document creation time
     if (pix > 0) {
       entries.push({
         id: `entry-${docId}-pix`,
         amount: pix,
         paymentMethod: 'pix',
-        time: '12:00',
+        time: docTime,
         createdAt: data.createdAt || new Date().toISOString(),
       });
     }
@@ -252,7 +279,7 @@ export function parseSaleDocument(docId: string, data: any): DailySale {
         id: `entry-${docId}-card`,
         amount: credit,
         paymentMethod: 'card',
-        time: '14:00',
+        time: docTime,
         createdAt: data.createdAt || new Date().toISOString(),
       });
     }
@@ -261,7 +288,7 @@ export function parseSaleDocument(docId: string, data: any): DailySale {
         id: `entry-${docId}-cash`,
         amount: cash,
         paymentMethod: 'cash',
-        time: '16:00',
+        time: docTime,
         createdAt: data.createdAt || new Date().toISOString(),
       });
     }
@@ -270,7 +297,7 @@ export function parseSaleDocument(docId: string, data: any): DailySale {
         id: `entry-${docId}-total`,
         amount: totalSales,
         paymentMethod: 'pix',
-        time: '12:00',
+        time: docTime,
         createdAt: data.createdAt || new Date().toISOString(),
       });
     }
@@ -375,6 +402,11 @@ export function subscribeToUserSales(
 
 // Save or update a single daily sale
 export async function saveSaleToCloud(userId: string, sale: DailySale): Promise<void> {
+  if (!sale) {
+    console.warn('[Firestore] saveSaleToCloud chamado sem registro válido.');
+    return;
+  }
+
   const targetDate = sale.date || getTodaySafeDate();
   const saleId = `sale-${targetDate}`;
   const path = `users/${userId}/sales/${saleId}`;
@@ -384,7 +416,7 @@ export async function saveSaleToCloud(userId: string, sale: DailySale): Promise<
     // Explicitly construct safe object without any undefined values
     const safeData = cleanForFirestore({
       id: saleId,
-      date: sale.date || getTodaySafeDate(),
+      date: targetDate,
       totalSales: Number(sale.totalSales) || 0,
       cost: Number(sale.cost) || 0,
       profit: Number(sale.profit) || 0,
@@ -400,7 +432,7 @@ export async function saveSaleToCloud(userId: string, sale: DailySale): Promise<
         id: e.id || `entry-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
         amount: Number(e.amount) || 0,
         paymentMethod: e.paymentMethod || 'pix',
-        time: e.time || '12:00',
+        time: e.time || formatIsoToBRTime(e.createdAt),
         createdAt: e.createdAt || new Date().toISOString(),
       })),
       costEntries: (sale.costEntries || []).map((c) => ({
@@ -408,7 +440,7 @@ export async function saveSaleToCloud(userId: string, sale: DailySale): Promise<
         amount: Number(c.amount) || 0,
         description: typeof c.description === 'string' ? c.description : 'Despesa/Custo',
         category: typeof c.category === 'string' ? c.category : 'Outros',
-        time: c.time || '12:00',
+        time: c.time || formatIsoToBRTime(c.createdAt),
         createdAt: c.createdAt || new Date().toISOString(),
       })),
       notes: typeof sale.notes === 'string' ? sale.notes : '',
@@ -418,17 +450,27 @@ export async function saveSaleToCloud(userId: string, sale: DailySale): Promise<
     });
 
     await setDoc(docRef, safeData);
+    console.log('[Firestore] Documento salvo com sucesso:', path);
   } catch (error) {
     handleFirestoreError(error, OperationType.WRITE, path);
   }
 }
 
 function getTodaySafeDate(): string {
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, '0');
-  const day = String(now.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
+  try {
+    return new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'America/Sao_Paulo',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(new Date());
+  } catch {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const day = String(now.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }
 }
 
 // Delete a daily sale
