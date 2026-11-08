@@ -178,7 +178,11 @@ export const MonthTab: React.FC<MonthTabProps> = ({
             {formatCurrency(summary.totalProfit)}
           </p>
           <span className="text-[11px] text-emerald-300/80 mt-0.5 block">
-            Margem média: <strong className="font-mono">{formatPercent(summary.averageProfitMargin)}</strong>
+            {summary.totalCost === 0 ? (
+              <strong className="text-emerald-300">100% limpo (sem custos deduzidos)</strong>
+            ) : (
+              <>Margem média: <strong className="font-mono">{formatPercent(summary.averageProfitMargin)}</strong></>
+            )}
           </span>
         </div>
 
@@ -201,7 +205,9 @@ export const MonthTab: React.FC<MonthTabProps> = ({
           <p className="mt-1 text-lg font-bold text-slate-300 font-mono">
             {formatCurrency(summary.totalCost)}
           </p>
-          <span className="text-[11px] text-slate-400 mt-0.5 block">Mercadorias e despesas</span>
+          <span className="text-[11px] text-slate-400 mt-0.5 block">
+            {summary.totalCost > 0 ? 'Despesas e mercadorias adicionadas' : 'Nenhum custo adicionado (R$ 0,00)'}
+          </span>
         </div>
 
         <div className="rounded-2xl bg-slate-900 border border-slate-800 p-4">

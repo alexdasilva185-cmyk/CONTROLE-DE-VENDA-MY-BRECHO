@@ -135,13 +135,16 @@ export const SaleFormModal: React.FC<SaleFormModalProps> = ({
       finalEntries = initialSale.entries && initialSale.entries.length > 0 ? initialSale.entries : [newEntry];
     }
 
-    const calculatedProfit = Math.round(((finalTotalSales * marginPct) / 100) * 100) / 100;
-    const calculatedCost = Math.round((finalTotalSales - calculatedProfit) * 100) / 100;
+    // In MY Brechó, costs are strictly manual expenses entered via "+ Custo". If no cost added, cost is 0 and profit is 100% clean!
+    const manualCost = Array.isArray(existing?.costEntries) && existing.costEntries.length > 0
+      ? existing.costEntries.reduce((acc, c) => acc + (Number(c.amount) || 0), 0)
+      : 0;
+    const calculatedProfit = finalTotalSales - manualCost;
 
     onSave({
       date,
       totalSales: finalTotalSales,
-      cost: calculatedCost,
+      cost: manualCost,
       profit: calculatedProfit,
       salesCount: finalSalesCount,
       paymentMethods: {

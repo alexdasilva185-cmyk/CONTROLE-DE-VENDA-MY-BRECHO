@@ -24,7 +24,6 @@ import { calculateMonthSummary } from '../utils/calculations';
 import { getTodayDateString, getCurrentBrazilianTimeString } from '../utils/formatters';
 
 function applyMarginToSales(salesList: DailySale[], marginPct: number): DailySale[] {
-  if (isNaN(marginPct) || marginPct <= 0 || marginPct > 100) return salesList;
   return salesList.map((s) => {
     // If the sale has manual cost entries (from + Custo), keep those explicit actual costs
     const hasManualCosts = Array.isArray(s.costEntries) && s.costEntries.length > 0;
@@ -40,15 +39,13 @@ function applyMarginToSales(salesList: DailySale[], marginPct: number): DailySal
       };
     }
 
-    // Recalculate profit and cost based on the configured profit margin percentage
-    const profit = Math.round(((s.totalSales * marginPct) / 100 + Number.EPSILON) * 100) / 100;
-    const cost = Math.round((s.totalSales - profit + Number.EPSILON) * 100) / 100;
+    // In MY Brechó, if no costs were added by the user, cost is R$ 0,00 and profit is 100% clean
     return {
       ...s,
-      profit,
-      cost,
-      profitMargin: marginPct,
-      updatedAt: new Date().toISOString(),
+      cost: 0,
+      profit: s.totalSales,
+      profitMargin: 100,
+      updatedAt: s.updatedAt || new Date().toISOString(),
     };
   });
 }
@@ -169,20 +166,19 @@ export function useSalesData() {
       entries?: DailySale['entries'];
       notes?: string;
     }) => {
-      const profit =
-        saleInput.profit !== undefined
-          ? saleInput.profit
-          : Math.round((saleInput.totalSales - saleInput.cost) * 100) / 100;
-      const profitMargin =
-        saleInput.totalSales > 0 ? (profit / saleInput.totalSales) * 100 : 0;
+      // In MY Brechó, costs exist ONLY if manually entered via "+ Custo" (costEntries)
+      const existing = salesRef.current.find((s) => s.date === saleInput.date);
+      const manualCost = Array.isArray(existing?.costEntries) && existing.costEntries.length > 0
+        ? existing.costEntries.reduce((acc, c) => acc + (Number(c.amount) || 0), 0)
+        : (saleInput.cost && existing?.costEntries && existing.costEntries.length > 0 ? saleInput.cost : 0);
+
+      const profit = Math.round((saleInput.totalSales - manualCost) * 100) / 100;
+      const profitMargin = saleInput.totalSales > 0 ? (profit / saleInput.totalSales) * 100 : 100;
       const salesCount = Math.max(1, saleInput.salesCount || 1);
       const averageTicket = saleInput.totalSales / salesCount;
 
       const now = new Date().toISOString();
       const deterministicId = `sale-${saleInput.date}`;
-
-      // Read current state synchronously from ref
-      const existing = salesRef.current.find((s) => s.date === saleInput.date);
 
       const targetRecord: DailySale = existing
         ? {
@@ -190,7 +186,7 @@ export function useSalesData() {
             id: deterministicId,
             date: saleInput.date,
             totalSales: saleInput.totalSales,
-            cost: saleInput.cost,
+            cost: manualCost,
             profit,
             profitMargin,
             salesCount,
@@ -204,7 +200,7 @@ export function useSalesData() {
             id: deterministicId,
             date: saleInput.date,
             totalSales: saleInput.totalSales,
-            cost: saleInput.cost,
+            cost: manualCost,
             profit,
             profitMargin,
             salesCount,
@@ -661,16 +657,6 @@ export function useSalesData() {
           for (const c of s.costEntries) {
             list.push({ ...c, date: s.date });
           }
-        } else if (s.cost > 0 && (!s.costEntries || s.costEntries.length === 0)) {
-          list.push({
-            id: `cost-auto-${s.id}`,
-            amount: s.cost,
-            description: s.notes || 'Custo do dia',
-            category: 'Outros',
-            time: '12:00',
-            createdAt: s.createdAt,
-            date: s.date,
-          });
         }
       }
     }

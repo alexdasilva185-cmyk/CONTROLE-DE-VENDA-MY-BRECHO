@@ -111,8 +111,17 @@ export const TodayTab: React.FC<TodayTabProps> = ({
     );
 
     const totalRevenue = periodSales.reduce((acc, s) => acc + s.totalSales, 0);
-    const totalCost = periodSales.reduce((acc, s) => acc + s.cost, 0);
-    const totalProfit = periodSales.reduce((acc, s) => acc + s.profit, 0);
+    const totalCost = periodSales.reduce(
+      (acc, s) =>
+        acc +
+        (Array.isArray(s.costEntries) && s.costEntries.length > 0
+          ? s.costEntries.reduce((sub, c) => sub + (Number(c.amount) || 0), 0)
+          : (Array.isArray(s.entries) && s.entries.length > 0 && (!s.costEntries || s.costEntries.length === 0)
+              ? 0
+              : (Number(s.cost) || 0))),
+      0
+    );
+    const totalProfit = totalRevenue - totalCost;
     const totalSalesCount = periodSales.reduce((acc, s) => acc + (s.salesCount || 1), 0);
     const daysWithSales = periodSales.length;
 
@@ -120,7 +129,7 @@ export const TodayTab: React.FC<TodayTabProps> = ({
     const dailyAverageRevenue = isToday ? totalRevenue : daysWithSales > 0 ? totalRevenue / daysWithSales : 0;
     const dailyAverageProfit = isToday ? totalProfit : daysWithSales > 0 ? totalProfit / daysWithSales : 0;
     const averageTicket = totalSalesCount > 0 ? totalRevenue / totalSalesCount : 0;
-    const profitMargin = totalRevenue > 0 ? (totalProfit / totalRevenue) * 100 : 0;
+    const profitMargin = totalRevenue > 0 ? (totalProfit / totalRevenue) * 100 : 100;
 
     return {
       isToday,

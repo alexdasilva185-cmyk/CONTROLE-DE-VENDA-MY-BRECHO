@@ -196,25 +196,16 @@ function formatIsoToBRTime(iso?: string): string {
 export function parseSaleDocument(docId: string, data: any): DailySale {
   const date = normalizeDate(data.date ?? data.data ?? data.dia, docId);
   const totalSales = Math.max(0, Number(data.totalSales ?? data.total ?? data.valor ?? data.faturamento ?? data.venda ?? 0));
-  const cost = Math.max(0, Number(data.cost ?? data.custo ?? data.despesa ?? data.despesas ?? data.gastos ?? 0));
 
-  // Automatically calculate profit if missing
-  const profit =
-    data.profit !== undefined
-      ? Number(data.profit)
-      : data.lucro !== undefined
-      ? Number(data.lucro)
-      : totalSales - cost;
+  // In MY Brechó, costs exist ONLY if manually added by the user via "+ Custo" (costEntries)
+  let cost = 0;
+  if (Array.isArray(data.costEntries) && data.costEntries.length > 0) {
+    cost = data.costEntries.reduce((acc: number, c: any) => acc + (Number(c.amount ?? c.valor ?? 0) || 0), 0);
+  }
 
-  // Automatically calculate profit margin if missing
-  const profitMargin =
-    data.profitMargin !== undefined
-      ? Number(data.profitMargin)
-      : data.margem !== undefined
-      ? Number(data.margem)
-      : totalSales > 0
-      ? (profit / totalSales) * 100
-      : 0;
+  // Profit is 100% clean if no cost was added
+  const profit = totalSales - cost;
+  const profitMargin = totalSales > 0 ? (profit / totalSales) * 100 : 100;
 
   // Normalized sales count
   const rawCount = Number(data.salesCount ?? data.quantidade ?? data.qtd ?? data.vendas);

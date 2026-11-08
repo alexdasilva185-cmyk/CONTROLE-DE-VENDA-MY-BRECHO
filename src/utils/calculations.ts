@@ -26,9 +26,19 @@ export function calculateMonthSummary(
   const daysWithSalesSet = new Set<string>();
 
   for (const sale of monthSales) {
-    totalRevenue += sale.totalSales;
-    totalCost += sale.cost;
-    totalProfit += sale.profit;
+    totalRevenue += Number(sale.totalSales) || 0;
+
+    // Real cost: ONLY from explicit costEntries added by user via "+ Custo"
+    const actualCost = Array.isArray(sale.costEntries) && sale.costEntries.length > 0
+      ? sale.costEntries.reduce((acc, c) => acc + (Number(c.amount) || 0), 0)
+      : (Array.isArray(sale.entries) && sale.entries.length > 0 && (!sale.costEntries || sale.costEntries.length === 0)
+          ? 0 // If sales entries exist but no cost entries, cost is 0 (100% limpo)
+          : (Number(sale.cost) || 0));
+
+    const actualProfit = (Number(sale.totalSales) || 0) - actualCost;
+
+    totalCost += actualCost;
+    totalProfit += actualProfit;
     totalSalesCount += sale.salesCount;
     if (sale.totalSales > 0) {
       daysWithSalesSet.add(sale.date);
@@ -38,7 +48,7 @@ export function calculateMonthSummary(
       bestDay = {
         date: sale.date,
         revenue: sale.totalSales,
-        profit: sale.profit,
+        profit: actualProfit,
         salesCount: sale.salesCount,
       };
     }
