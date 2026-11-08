@@ -29,13 +29,9 @@ service cloud.firestore {
       allow read, write: if isOwner(userId);
     }
 
-    // Root collections fallback if user adds data directly at root in Firebase Console
-    match /sales/{saleId} {
-      allow read, write: if isSignedIn();
-    }
-
-    match /vendas/{saleId} {
-      allow read, write: if isSignedIn();
+    // User's private customer credits & exchange vouchers collection
+    match /users/{userId}/credits/{creditId} {
+      allow read, write: if isOwner(userId);
     }
   }
 }

@@ -123,17 +123,9 @@ export function isMockSaleDoc(data: any, docId?: string): boolean {
     return true;
   }
 
-  // Also purge the test entries from 07/11/2026
-  if (dateStr === '2026-11-07' || docId?.includes('2026-11-07')) {
+  // Purge test doc from 2026-11-07 only if it has sample notes or sample identifiers
+  if ((dateStr === '2026-11-07' || docId?.includes('2026-11-07')) && (docId?.includes('sample') || typeof data.notes === 'string' && mockNotes.includes(data.notes.toLowerCase().trim()))) {
     return true;
-  }
-  if (Array.isArray(data.entries)) {
-    for (const e of data.entries) {
-      const amt = Number(e?.amount ?? e?.valor);
-      if (amt === 582 || amt === 35 || Math.abs(amt - 24.99) < 0.01) {
-        return true;
-      }
-    }
   }
 
   return false;
@@ -327,7 +319,15 @@ export function subscribeToUserSales(
   let activeSalesMap = new Map<string, DailySale>();
 
   const emitSorted = () => {
-    const list = Array.from(activeSalesMap.values());
+    // Deduplicate by date to guarantee 100% uniqueness per day
+    const byDate = new Map<string, DailySale>();
+    for (const s of activeSalesMap.values()) {
+      const existing = byDate.get(s.date);
+      if (!existing || (s.updatedAt || '') >= (existing.updatedAt || '')) {
+        byDate.set(s.date, s);
+      }
+    }
+    const list = Array.from(byDate.values());
     list.sort((a, b) => b.date.localeCompare(a.date));
     onData(list);
   };
@@ -375,7 +375,8 @@ export function subscribeToUserSales(
 
 // Save or update a single daily sale
 export async function saveSaleToCloud(userId: string, sale: DailySale): Promise<void> {
-  const saleId = sale.id || `sale-${sale.date || getTodaySafeDate()}`;
+  const targetDate = sale.date || getTodaySafeDate();
+  const saleId = `sale-${targetDate}`;
   const path = `users/${userId}/sales/${saleId}`;
   try {
     const docRef = doc(db, 'users', userId, 'sales', saleId);

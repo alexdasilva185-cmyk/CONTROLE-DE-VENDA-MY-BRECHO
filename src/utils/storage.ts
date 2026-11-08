@@ -139,17 +139,9 @@ export function isMockSale(sale: any): boolean {
     return true;
   }
 
-  // Also purge test items from 2026-11-07
-  if (sale.date === '2026-11-07') {
+  // Purge test item from 2026-11-07 only if it has sample notes or sample ids
+  if (sale.date === '2026-11-07' && (sale.id?.includes('sample') || typeof sale.notes === 'string' && mockNotes.includes(sale.notes.toLowerCase().trim()))) {
     return true;
-  }
-  if (Array.isArray(sale.entries)) {
-    for (const e of sale.entries) {
-      const amt = Number(e?.amount);
-      if (amt === 582 || amt === 35 || Math.abs(amt - 24.99) < 0.01) {
-        return true;
-      }
-    }
   }
 
   return false;

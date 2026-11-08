@@ -34,14 +34,16 @@ export const AddCostModal: React.FC<AddCostModalProps> = ({
   const [category, setCategory] = useState('Mercadoria / Estoque');
   const [date, setDate] = useState(defaultDate || getTodayDateString());
   const [isSaving, setIsSaving] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   if (!isOpen) return null;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setErrorMessage(null);
     const cleanAmount = parseFloat(amountStr.replace(/\./g, '').replace(',', '.')) || 0;
     if (cleanAmount <= 0) {
-      alert('Por favor, informe um valor de custo válido maior que zero.');
+      setErrorMessage('Por favor, informe um valor de custo válido maior que zero.');
       return;
     }
 
@@ -56,6 +58,7 @@ export const AddCostModal: React.FC<AddCostModalProps> = ({
       // Reset form
       setAmountStr('');
       setDescription('');
+      setErrorMessage(null);
       onClose();
     } catch (err) {
       console.error('Erro ao salvar custo:', err);
@@ -170,6 +173,12 @@ export const AddCostModal: React.FC<AddCostModalProps> = ({
               className="w-full rounded-xl bg-slate-950 border border-slate-700 py-2.5 px-3.5 text-sm text-white font-mono focus:outline-none focus:border-amber-500"
             />
           </div>
+
+          {errorMessage && (
+            <div className="p-2.5 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs font-semibold text-center">
+              {errorMessage}
+            </div>
+          )}
 
           {/* Action buttons */}
           <div className="pt-2 flex gap-2">

@@ -60,7 +60,20 @@ export function useSalesData() {
     const unsubSales = subscribeToUserSales(
       user.uid,
       (cloudSales) => {
-        // Cloud is authoritative: sync whatever is in the cloud (even if empty)
+        // If cloud account is empty on first login, check if user had legitimate local sales to migrate
+        if (cloudSales.length === 0) {
+          const currentLocal = loadSalesFromStorage();
+          const legitimateLocal = currentLocal.filter((s) => !isMockSale(s) && s.totalSales > 0);
+          if (legitimateLocal.length > 0) {
+            console.log('Migrando vendas locais do celular para a nuvem:', legitimateLocal.length);
+            syncLocalSalesToCloud(user.uid, legitimateLocal).catch((e) =>
+              console.warn('Erro ao migrar vendas locais:', e)
+            );
+            return;
+          }
+        }
+
+        // Cloud is authoritative: sync cloud sales
         setSales(cloudSales);
         saveSalesToStorage(cloudSales);
         setIsSyncing(false);
@@ -119,11 +132,13 @@ export function useSalesData() {
         const existingIndex = prev.findIndex((s) => s.date === saleInput.date);
         let nextSales: DailySale[];
 
+        const deterministicId = `sale-${saleInput.date}`;
+
         if (existingIndex >= 0) {
           const existing = prev[existingIndex];
           targetRecord = {
             ...existing,
-            id: existing.id || `sale-${saleInput.date}`,
+            id: deterministicId,
             date: saleInput.date,
             totalSales: saleInput.totalSales,
             cost: saleInput.cost,
@@ -140,7 +155,7 @@ export function useSalesData() {
           nextSales[existingIndex] = targetRecord;
         } else {
           targetRecord = {
-            id: `sale-${saleInput.date}-${Date.now()}`,
+            id: deterministicId,
             date: saleInput.date,
             totalSales: saleInput.totalSales,
             cost: saleInput.cost,
@@ -295,6 +310,8 @@ export function useSalesData() {
         const existingIndex = prev.findIndex((s) => s.date === costInput.date);
         let nextSales: DailySale[];
 
+        const deterministicId = `sale-${costInput.date}`;
+
         if (existingIndex >= 0) {
           const existing = prev[existingIndex];
           const newCost = (existing.cost || 0) + amount;
@@ -304,6 +321,7 @@ export function useSalesData() {
 
           targetRecord = {
             ...existing,
+            id: deterministicId,
             cost: newCost,
             profit: newProfit,
             profitMargin: newMargin,
@@ -315,7 +333,7 @@ export function useSalesData() {
         } else {
           // Create new day record with cost
           targetRecord = {
-            id: `sale-${costInput.date}-${Date.now()}`,
+            id: deterministicId,
             date: costInput.date,
             totalSales: 0,
             cost: amount,

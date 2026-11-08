@@ -30,6 +30,7 @@ import {
   Cloud,
   CloudCheck,
   CalendarDays,
+  Gift,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
@@ -48,6 +49,9 @@ interface TodayTabProps {
   onOpenNewSale: (saleToEdit?: DailySale) => void;
   onDeleteSale: (id: string) => void;
   onDeleteSaleEntry: (date: string, entryId: string) => void;
+  onNavigateToCredits?: () => void;
+  activeCreditsCount?: number;
+  totalActiveCreditsBalance?: number;
 }
 
 export const TodayTab: React.FC<TodayTabProps> = ({
@@ -58,6 +62,9 @@ export const TodayTab: React.FC<TodayTabProps> = ({
   onOpenNewSale,
   onDeleteSale,
   onDeleteSaleEntry,
+  onNavigateToCredits,
+  activeCreditsCount = 0,
+  totalActiveCreditsBalance = 0,
 }) => {
   const { user, signInWithGoogle } = useAuth();
   const todayStr = getTodayDateString();
@@ -159,6 +166,31 @@ export const TodayTab: React.FC<TodayTabProps> = ({
           >
             Conectar
           </button>
+        </div>
+      )}
+
+      {/* Active Credits Notice Banner */}
+      {activeCreditsCount > 0 && onNavigateToCredits && (
+        <div
+          onClick={onNavigateToCredits}
+          className="flex items-center justify-between p-3 rounded-2xl bg-gradient-to-r from-emerald-950/80 via-slate-900 to-slate-900 border border-emerald-500/40 hover:border-emerald-400/70 transition shadow-lg cursor-pointer active:scale-[0.99]"
+        >
+          <div className="flex items-center gap-2.5">
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 shrink-0">
+              <Gift className="w-4.5 h-4.5" />
+            </div>
+            <div>
+              <p className="text-xs font-extrabold text-white">
+                {activeCreditsCount} {activeCreditsCount === 1 ? 'cliente possui' : 'clientes possuem'} vale-crédito
+              </p>
+              <p className="text-[11px] text-emerald-400 font-mono font-bold">
+                Total a abater: {formatCurrency(totalActiveCreditsBalance)}
+              </p>
+            </div>
+          </div>
+          <span className="text-[11px] font-extrabold text-emerald-400 bg-emerald-950/80 px-2.5 py-1 rounded-xl border border-emerald-800/60 shrink-0">
+            Ver &rarr;
+          </span>
         </div>
       )}
 

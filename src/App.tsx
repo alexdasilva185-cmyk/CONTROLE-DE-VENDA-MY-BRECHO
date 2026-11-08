@@ -1,9 +1,11 @@
 import React, { useState } from 'react';
 import { useSalesData } from './hooks/useSalesData';
+import { useCreditsData } from './hooks/useCreditsData';
 import { Header } from './components/Header';
 import { BottomNav, NavTab } from './components/BottomNav';
 import { TodayTab } from './components/TodayTab';
 import { MonthTab } from './components/MonthTab';
+import { CreditsTab } from './components/CreditsTab';
 import { GoalsTab } from './components/GoalsTab';
 import { SettingsTab } from './components/SettingsTab';
 import { SaleFormModal } from './components/SaleFormModal';
@@ -27,6 +29,7 @@ export default function App() {
     allRecentTransactions,
     isLoaded,
     addOrUpdateSale,
+    addCost,
     deleteSale,
     deleteSaleEntry,
     updateSettings,
@@ -35,6 +38,15 @@ export default function App() {
     resetToSampleData,
     importData,
   } = useSalesData();
+
+  const {
+    credits,
+    addCredit,
+    deductCredit,
+    deleteCredit,
+    activeCreditsCount,
+    totalActiveBalance,
+  } = useCreditsData();
 
   const { isUnauthorizedDomain, clearAuthError } = useAuth();
   const [currentTab, setCurrentTab] = useState<NavTab>('today');
@@ -107,6 +119,9 @@ export default function App() {
               onOpenNewSale={handleOpenNewSale}
               onDeleteSale={deleteSale}
               onDeleteSaleEntry={deleteSaleEntry}
+              onNavigateToCredits={() => setCurrentTab('credits')}
+              activeCreditsCount={activeCreditsCount}
+              totalActiveCreditsBalance={totalActiveBalance}
             />
           )}
 
@@ -116,6 +131,17 @@ export default function App() {
               monthSales={currentMonthSales}
               settings={settings}
               onOpenNewSale={handleOpenNewSale}
+              onAddCost={addCost}
+            />
+          )}
+
+          {currentTab === 'credits' && (
+            <CreditsTab
+              credits={credits}
+              onAddCredit={addCredit}
+              onDeductCredit={deductCredit}
+              onDeleteCredit={deleteCredit}
+              businessName={settings.businessName || 'MY Brechó'}
             />
           )}
 
@@ -145,6 +171,7 @@ export default function App() {
           currentTab={currentTab}
           onTabChange={setCurrentTab}
           onOpenNewSale={() => handleOpenNewSale()}
+          activeCreditsCount={activeCreditsCount}
         />
 
         {/* Modal for adding/editing sales results */}

@@ -63,6 +63,7 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
   const [purgeMessage, setPurgeMessage] = useState<string | null>(null);
   const [copiedPath, setCopiedPath] = useState(false);
   const [showAuthHelper, setShowAuthHelper] = useState(false);
+  const [confirmZerarStep, setConfirmZerarStep] = useState(false);
 
   const handleSaveGeneral = (e: React.FormEvent) => {
     e.preventDefault();
@@ -411,20 +412,28 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
           <button
             type="button"
             onClick={async () => {
-              if (
-                confirm(
-                  'Tem certeza que deseja apagar todas as vendas registradas e começar 100% zerado? Isso apagará as vendas do celular, do computador e da nuvem.'
-                )
-              ) {
-                await onClearAll();
-                setPurgeMessage('Banco de dados completamente zerado e limpo!');
-                setTimeout(() => setPurgeMessage(null), 3500);
+              if (!confirmZerarStep) {
+                setConfirmZerarStep(true);
+                setTimeout(() => setConfirmZerarStep(false), 4500);
+                return;
               }
+              setConfirmZerarStep(false);
+              await onClearAll();
+              setPurgeMessage('Banco de dados completamente zerado e limpo!');
+              setTimeout(() => setPurgeMessage(null), 3500);
             }}
-            className="w-full flex items-center justify-center gap-1.5 rounded-xl bg-rose-950/40 hover:bg-rose-900/60 border border-rose-800/40 py-2.5 px-3 text-xs font-bold text-rose-300 transition cursor-pointer"
+            className={`w-full flex items-center justify-center gap-1.5 rounded-xl py-2.5 px-3 text-xs font-bold transition cursor-pointer ${
+              confirmZerarStep
+                ? 'bg-rose-600 hover:bg-rose-500 text-white animate-pulse border border-rose-400'
+                : 'bg-rose-950/40 hover:bg-rose-900/60 border border-rose-800/40 text-rose-300'
+            }`}
           >
             <Trash2 className="w-3.5 h-3.5 text-rose-400" />
-            <span>Zerar Todas as Vendas (Começar do Zero)</span>
+            <span>
+              {confirmZerarStep
+                ? '⚠️ Confirmar: Toque aqui para APAGAR TUDO'
+                : 'Zerar Todas as Vendas (Começar do Zero)'}
+            </span>
           </button>
         </div>
       </div>
