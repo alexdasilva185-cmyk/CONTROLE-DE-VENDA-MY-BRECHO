@@ -6,6 +6,15 @@ export interface SaleEntry {
   createdAt: string;
 }
 
+export interface CostEntry {
+  id: string;
+  amount: number;
+  description: string;
+  category?: string; // Mercadoria, Aluguel, Embalagem, Frete, Contas, Outros
+  time?: string;
+  createdAt: string;
+}
+
 export interface DailySale {
   id: string;
   date: string; // YYYY-MM-DD
@@ -23,6 +32,7 @@ export interface DailySale {
     other?: number;
   };
   entries?: SaleEntry[];
+  costEntries?: CostEntry[];
   notes?: string;
   createdAt: string;
   updatedAt: string;

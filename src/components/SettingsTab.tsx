@@ -24,14 +24,16 @@ import {
   ShieldAlert,
   Globe,
   ExternalLink,
+  Copy,
 } from 'lucide-react';
 
 interface SettingsTabProps {
   settings: AppSettings;
   sales: DailySale[];
   onUpdateSettings: (settings: Partial<AppSettings>) => void;
-  onClearAll: () => void;
-  onResetSample: () => void;
+  onClearAll: () => Promise<void> | void;
+  onPurgeMock?: () => Promise<number | void> | void;
+  onResetSample: () => Promise<void> | void;
   onImportData: (imported: DailySale[]) => void;
 }
 
@@ -40,6 +42,7 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
   sales,
   onUpdateSettings,
   onClearAll,
+  onPurgeMock,
   onResetSample,
   onImportData,
 }) => {
@@ -57,6 +60,8 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
   const [savedSuccess, setSavedSuccess] = useState(false);
   const [syncingCloud, setSyncingCloud] = useState(false);
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
+  const [purgeMessage, setPurgeMessage] = useState<string | null>(null);
+  const [copiedPath, setCopiedPath] = useState(false);
   const [showAuthHelper, setShowAuthHelper] = useState(false);
 
   const handleSaveGeneral = (e: React.FormEvent) => {
@@ -82,6 +87,22 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
     } finally {
       setSyncingCloud(false);
     }
+  };
+
+  const handlePurgeMockData = async () => {
+    if (onPurgeMock) {
+      const count = await onPurgeMock();
+      setPurgeMessage(typeof count === 'number' && count > 0 ? `${count} vendas aleatórias apagadas da nuvem!` : 'Nenhum dado aleatório pendente na nuvem!');
+      setTimeout(() => setPurgeMessage(null), 4000);
+    }
+  };
+
+  const copyFirestorePath = () => {
+    if (!user) return;
+    const path = `users/${user.uid}/sales`;
+    navigator.clipboard.writeText(path);
+    setCopiedPath(true);
+    setTimeout(() => setCopiedPath(false), 2000);
   };
 
   const handleExportBackup = () => {
@@ -172,9 +193,23 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
               </button>
             </div>
 
-            <p className="text-[11px] text-slate-300 leading-relaxed">
-              Suas vendas e metas estão sendo salvas e sincronizadas automaticamente no banco de dados em nuvem.
-            </p>
+            <div className="rounded-xl bg-slate-900/90 border border-emerald-500/30 p-2.5 space-y-1.5">
+              <div className="flex items-center justify-between text-[11px]">
+                <span className="text-slate-400">Caminho no Firebase:</span>
+                <button
+                  type="button"
+                  onClick={copyFirestorePath}
+                  className="flex items-center gap-1 text-emerald-400 hover:text-emerald-300 font-mono text-[10px] bg-slate-800 px-2 py-0.5 rounded cursor-pointer"
+                  title="Copiar caminho da coleção"
+                >
+                  <Copy className="w-3 h-3" />
+                  <span>{copiedPath ? 'Copiado!' : `users/${user.uid.slice(0, 8)}.../sales`}</span>
+                </button>
+              </div>
+              <p className="text-[11px] text-emerald-300 leading-tight">
+                ⚡ <strong>Tempo Real Ativo:</strong> Qualquer dado novo colocado no Firebase ou no app atualiza instantaneamente no seu celular e no site.
+              </p>
+            </div>
 
             <button
               onClick={handleManualCloudSync}
@@ -182,7 +217,7 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
               className="w-full flex items-center justify-center gap-1.5 rounded-xl bg-emerald-600/30 hover:bg-emerald-600/50 border border-emerald-500/50 py-2 text-xs font-bold text-emerald-300 transition cursor-pointer"
             >
               <CloudCheck className="w-4 h-4" />
-              <span>{syncingCloud ? 'Sincronizando...' : syncMessage || 'Forçar Sincronização Agora'}</span>
+              <span>{syncingCloud ? 'Sincronizando...' : syncMessage || 'Sincronizar Agora'}</span>
             </button>
           </div>
         ) : (
@@ -350,35 +385,46 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
       {/* Reset & Samples Management */}
       <div className="rounded-3xl bg-slate-900 border border-slate-800 p-4 space-y-2.5 shadow-xl">
         <h3 className="text-xs font-bold uppercase tracking-wider text-slate-300">
-          Gerenciar Dados de Demonstração
+          Gerenciamento do Banco de Dados
         </h3>
         <p className="text-xs text-slate-400">
-          Quer começar do zero com seus dados reais ou restaurar os exemplos de teste?
+          Apague os dados aleatórios criados antes ou zere o banco para colocar suas vendas reais.
         </p>
 
-        <div className="flex gap-2 pt-1">
+        {purgeMessage && (
+          <div className="rounded-xl bg-emerald-500/20 border border-emerald-500/40 p-2.5 text-xs text-emerald-300 font-semibold flex items-center gap-1.5">
+            <Check className="w-4 h-4 text-emerald-400 shrink-0" />
+            <span>{purgeMessage}</span>
+          </div>
+        )}
+
+        <div className="space-y-2 pt-1">
           <button
-            onClick={() => {
-              if (confirm('Deseja recarregar os dados de exemplo para testar as médias?')) {
-                onResetSample();
-              }
-            }}
-            className="flex-1 flex items-center justify-center gap-1.5 rounded-xl bg-slate-800 hover:bg-slate-750 border border-slate-700 py-2 px-3 text-xs font-semibold text-slate-200 transition"
+            type="button"
+            onClick={handlePurgeMockData}
+            className="w-full flex items-center justify-center gap-1.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 py-2.5 px-3 text-xs font-bold text-amber-300 transition cursor-pointer"
           >
-            <RefreshCw className="w-3.5 h-3.5 text-blue-400" />
-            <span>Dados de Exemplo</span>
+            <Trash2 className="w-4 h-4 text-amber-400" />
+            <span>Apagar Dados Aleatórios da Nuvem (Firebase)</span>
           </button>
 
           <button
-            onClick={() => {
-              if (confirm('Tem certeza que deseja apagar todas as vendas registradas e começar zerado?')) {
-                onClearAll();
+            type="button"
+            onClick={async () => {
+              if (
+                confirm(
+                  'Tem certeza que deseja apagar todas as vendas registradas e começar 100% zerado? Isso apagará as vendas do celular, do computador e da nuvem.'
+                )
+              ) {
+                await onClearAll();
+                setPurgeMessage('Banco de dados completamente zerado e limpo!');
+                setTimeout(() => setPurgeMessage(null), 3500);
               }
             }}
-            className="flex-1 flex items-center justify-center gap-1.5 rounded-xl bg-rose-950/40 hover:bg-rose-900/60 border border-rose-800/40 py-2 px-3 text-xs font-semibold text-rose-300 transition"
+            className="w-full flex items-center justify-center gap-1.5 rounded-xl bg-rose-950/40 hover:bg-rose-900/60 border border-rose-800/40 py-2.5 px-3 text-xs font-bold text-rose-300 transition cursor-pointer"
           >
             <Trash2 className="w-3.5 h-3.5 text-rose-400" />
-            <span>Limpar Tudo</span>
+            <span>Zerar Todas as Vendas (Começar do Zero)</span>
           </button>
         </div>
       </div>

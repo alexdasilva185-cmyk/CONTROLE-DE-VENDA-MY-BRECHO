@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { DailySale, MonthSummary } from '../types/sales';
 import {
   formatCurrency,
@@ -27,7 +27,11 @@ import {
   Zap,
   ListFilter,
   Layers,
+  Cloud,
+  CloudCheck,
+  CalendarDays,
 } from 'lucide-react';
+import { useAuth } from '../context/AuthContext';
 
 interface TodayTabProps {
   todaySale?: DailySale;
@@ -55,9 +59,66 @@ export const TodayTab: React.FC<TodayTabProps> = ({
   onDeleteSale,
   onDeleteSaleEntry,
 }) => {
+  const { user, signInWithGoogle } = useAuth();
   const todayStr = getTodayDateString();
   const [copiedWhatsApp, setCopiedWhatsApp] = useState(false);
   const [viewMode, setViewMode] = useState<'individual' | 'daily'>('individual');
+  const [periodOption, setPeriodOption] = useState<'today' | '7d' | '15d' | '30d'>('today');
+
+  const periodStats = useMemo(() => {
+    const isToday = periodOption === 'today';
+    const daysCount = isToday ? 1 : periodOption === '7d' ? 7 : periodOption === '15d' ? 15 : 30;
+    const label = isToday ? 'Hoje' : periodOption === '7d' ? '7 Dias' : periodOption === '15d' ? '15 Dias' : '30 Dias';
+
+    const now = new Date();
+    const startDate = new Date();
+    startDate.setDate(now.getDate() - (daysCount - 1));
+    startDate.setHours(0, 0, 0, 0);
+
+    const startYear = startDate.getFullYear();
+    const startMonth = String(startDate.getMonth() + 1).padStart(2, '0');
+    const startDay = String(startDate.getDate()).padStart(2, '0');
+    const startStr = `${startYear}-${startMonth}-${startDay}`;
+
+    const endYear = now.getFullYear();
+    const endMonth = String(now.getMonth() + 1).padStart(2, '0');
+    const endDay = String(now.getDate()).padStart(2, '0');
+    const endStr = `${endYear}-${endMonth}-${endDay}`;
+
+    // Filter sales in this window
+    const periodSales = allSales.filter(
+      (s) => s.date >= startStr && s.date <= endStr && s.totalSales > 0
+    );
+
+    const totalRevenue = periodSales.reduce((acc, s) => acc + s.totalSales, 0);
+    const totalCost = periodSales.reduce((acc, s) => acc + s.cost, 0);
+    const totalProfit = periodSales.reduce((acc, s) => acc + s.profit, 0);
+    const totalSalesCount = periodSales.reduce((acc, s) => acc + (s.salesCount || 1), 0);
+    const daysWithSales = periodSales.length;
+
+    // Daily average based on days that had sales
+    const dailyAverageRevenue = isToday ? totalRevenue : daysWithSales > 0 ? totalRevenue / daysWithSales : 0;
+    const dailyAverageProfit = isToday ? totalProfit : daysWithSales > 0 ? totalProfit / daysWithSales : 0;
+    const averageTicket = totalSalesCount > 0 ? totalRevenue / totalSalesCount : 0;
+    const profitMargin = totalRevenue > 0 ? (totalProfit / totalRevenue) * 100 : 0;
+
+    return {
+      isToday,
+      daysCount,
+      label,
+      startStr,
+      endStr,
+      totalRevenue,
+      totalCost,
+      totalProfit,
+      totalSalesCount,
+      daysWithSales,
+      dailyAverageRevenue,
+      dailyAverageProfit,
+      averageTicket,
+      profitMargin,
+    };
+  }, [allSales, periodOption]);
 
   const handleShareWhatsApp = (sale: DailySale) => {
     const text = generateDailyWhatsAppText(sale);
@@ -75,39 +136,128 @@ export const TodayTab: React.FC<TodayTabProps> = ({
 
   return (
     <div className="space-y-4 pb-20">
-      {/* 1. LIVE MONTH AVERAGE HERO CARD (Constantly updated) */}
+      {/* Cloud Sync Status Indicator */}
+      {user ? (
+        <div className="flex items-center justify-between px-3 py-1.5 rounded-xl bg-slate-900/80 border border-emerald-500/30 text-[11px]">
+          <div className="flex items-center gap-1.5 text-emerald-400 font-bold">
+            <CloudCheck className="w-4 h-4 text-emerald-400 shrink-0" />
+            <span>Nuvem Ativa: Celular e Site sincronizados</span>
+          </div>
+          <span className="text-[10px] text-slate-400 truncate max-w-[140px]">{user.email}</span>
+        </div>
+      ) : (
+        <div className="flex items-center justify-between gap-2 p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs">
+          <div className="flex items-center gap-2">
+            <Cloud className="w-4 h-4 text-amber-400 shrink-0" />
+            <span className="text-[11px] font-medium leading-tight">
+              Para sincronizar celular e computador, conecte sua conta Google.
+            </span>
+          </div>
+          <button
+            onClick={signInWithGoogle}
+            className="shrink-0 bg-amber-500 hover:bg-amber-400 text-slate-950 font-extrabold text-[10px] px-2.5 py-1 rounded-lg transition cursor-pointer"
+          >
+            Conectar
+          </button>
+        </div>
+      )}
+
+      {/* 1. LIVE SALES & AVERAGE HERO CARD with Hoje, 7, 15, and 30 Days Options */}
       <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-emerald-950 via-slate-900 to-slate-950 border-2 border-emerald-500/50 p-4 shadow-xl">
-        <div className="flex items-center justify-between mb-1.5">
+        {/* Top Header */}
+        <div className="flex items-center justify-between mb-2.5">
           <div className="flex items-center gap-1.5">
             <span className="flex h-2 w-2 rounded-full bg-emerald-400 animate-ping"></span>
             <span className="text-[10px] font-black uppercase tracking-widest text-emerald-300">
-              Média Diária do Mês (Atualiza a cada venda)
+              {periodStats.isToday ? 'Resultado de Hoje (Tempo Real)' : 'Média de Vendas (Tempo Real)'}
             </span>
           </div>
-          <span className="text-[10px] font-bold text-slate-400 font-mono">
-            {monthSummary.daysWithSales} dias com vendas
+          <span className="text-[10px] font-bold text-slate-300 font-mono bg-slate-900/90 px-2 py-0.5 rounded-lg border border-slate-800">
+            {periodStats.isToday
+              ? `${periodStats.totalSalesCount} ${periodStats.totalSalesCount === 1 ? 'venda' : 'vendas'} hoje`
+              : `${periodStats.totalSalesCount} ${periodStats.totalSalesCount === 1 ? 'venda' : 'vendas'} em ${periodStats.label}`}
           </span>
         </div>
 
-        <div className="flex items-baseline gap-2">
-          <span className="text-2xl sm:text-3xl font-black text-white font-mono tracking-tight">
-            {formatCurrency(monthSummary.dailyAverageRevenue)}
-          </span>
-          <span className="text-xs font-semibold text-emerald-400">/ dia</span>
+        {/* Hoje / 7 Dias / 15 Dias / 30 Dias Selector Tabs */}
+        <div className="grid grid-cols-4 gap-1 p-1 rounded-2xl bg-slate-950/80 border border-slate-800/90 mb-3">
+          <button
+            type="button"
+            onClick={() => setPeriodOption('today')}
+            className={`py-2 px-1 text-[11px] sm:text-xs font-black rounded-xl transition cursor-pointer flex items-center justify-center ${
+              periodOption === 'today'
+                ? 'bg-gradient-to-r from-emerald-500 to-teal-400 text-slate-950 shadow-md shadow-emerald-500/30'
+                : 'text-slate-400 hover:text-white hover:bg-slate-850'
+            }`}
+          >
+            <span>Hoje</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setPeriodOption('7d')}
+            className={`py-2 px-1 text-[11px] sm:text-xs font-black rounded-xl transition cursor-pointer flex items-center justify-center ${
+              periodOption === '7d'
+                ? 'bg-gradient-to-r from-emerald-500 to-teal-400 text-slate-950 shadow-md shadow-emerald-500/30'
+                : 'text-slate-400 hover:text-white hover:bg-slate-850'
+            }`}
+          >
+            <span>7 Dias</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setPeriodOption('15d')}
+            className={`py-2 px-1 text-[11px] sm:text-xs font-black rounded-xl transition cursor-pointer flex items-center justify-center ${
+              periodOption === '15d'
+                ? 'bg-gradient-to-r from-emerald-500 to-teal-400 text-slate-950 shadow-md shadow-emerald-500/30'
+                : 'text-slate-400 hover:text-white hover:bg-slate-850'
+            }`}
+          >
+            <span>15 Dias</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setPeriodOption('30d')}
+            className={`py-2 px-1 text-[11px] sm:text-xs font-black rounded-xl transition cursor-pointer flex items-center justify-center ${
+              periodOption === '30d'
+                ? 'bg-gradient-to-r from-emerald-500 to-teal-400 text-slate-950 shadow-md shadow-emerald-500/30'
+                : 'text-slate-400 hover:text-white hover:bg-slate-850'
+            }`}
+          >
+            <span>30 Dias</span>
+          </button>
         </div>
+
+        {/* Main Big Value */}
+        <div className="flex items-baseline gap-2">
+          <span className="text-3xl sm:text-4xl font-black text-white font-mono tracking-tight">
+            {formatCurrency(periodStats.isToday ? periodStats.totalRevenue : periodStats.dailyAverageRevenue)}
+          </span>
+          {!periodStats.isToday && (
+            <span className="text-xs font-bold text-emerald-400">/ dia</span>
+          )}
+        </div>
+        <p className="text-[11px] text-slate-400 mt-0.5 font-medium">
+          {periodStats.isToday
+            ? 'Total faturado no dia de hoje'
+            : `Média por dia trabalhado nos últimos ${periodStats.label}`}
+        </p>
 
         {/* Live stats summary row */}
         <div className="mt-3 pt-2.5 border-t border-emerald-900/40 grid grid-cols-2 gap-2 text-xs">
-          <div className="bg-slate-900/80 rounded-xl p-2 border border-emerald-950">
-            <span className="text-[10px] uppercase font-bold text-slate-400">Faturamento do Mês</span>
+          <div className="bg-slate-900/80 rounded-xl p-2.5 border border-emerald-950">
+            <span className="text-[10px] uppercase font-bold text-slate-400 block">
+              {periodStats.isToday ? 'Vendido Hoje' : `Faturamento (${periodStats.label})`}
+            </span>
             <p className="text-xs font-extrabold text-white font-mono mt-0.5">
-              {formatCurrency(monthSummary.totalRevenue)}
+              {formatCurrency(periodStats.totalRevenue)}
             </p>
           </div>
-          <div className="bg-slate-900/80 rounded-xl p-2 border border-emerald-950">
-            <span className="text-[10px] uppercase font-bold text-slate-400">Lucro Médio por Dia</span>
+          <div className="bg-slate-900/80 rounded-xl p-2.5 border border-emerald-950">
+            <span className="text-[10px] uppercase font-bold text-slate-400 block">
+              {periodStats.isToday ? 'Lucro Líquido Hoje' : 'Lucro Médio por Dia'}
+            </span>
             <p className="text-xs font-extrabold text-emerald-400 font-mono mt-0.5">
-              {formatCurrency(monthSummary.dailyAverageProfit)}
+              {formatCurrency(periodStats.isToday ? periodStats.totalProfit : periodStats.dailyAverageProfit)}
             </p>
           </div>
         </div>
@@ -327,15 +477,16 @@ export const TodayTab: React.FC<TodayTabProps> = ({
 
                     {/* Delete single transaction */}
                     <button
-                      onClick={() => {
-                        if (confirm(`Deseja remover este lançamento de ${formatCurrency(tx.amount)}?`)) {
-                          onDeleteSaleEntry(tx.date, tx.id);
-                        }
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onDeleteSaleEntry(tx.date, tx.id);
                       }}
-                      className="p-2 text-slate-500 hover:text-rose-400 hover:bg-slate-800 rounded-xl transition cursor-pointer"
+                      className="p-2.5 text-slate-400 hover:text-rose-400 active:text-rose-500 hover:bg-rose-950/40 rounded-xl transition cursor-pointer active:scale-95 touch-manipulation"
                       title="Excluir este lançamento"
+                      aria-label="Excluir este lançamento"
                     >
-                      <Trash2 className="w-4 h-4" />
+                      <Trash2 className="w-4 h-4 text-slate-400 hover:text-rose-400 transition" />
                     </button>
                   </div>
                 );
@@ -420,15 +571,16 @@ export const TodayTab: React.FC<TodayTabProps> = ({
                         <Edit2 className="w-3.5 h-3.5" />
                       </button>
                       <button
-                        onClick={() => {
-                          if (confirm(`Deseja excluir as vendas do dia ${formatDateBR(sale.date)}?`)) {
-                            onDeleteSale(sale.id);
-                          }
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onDeleteSale(sale.id);
                         }}
-                        className="p-1.5 text-slate-400 hover:text-rose-400 hover:bg-slate-800 rounded-lg transition"
+                        className="p-1.5 text-slate-400 hover:text-rose-400 active:text-rose-500 hover:bg-rose-950/40 rounded-lg transition cursor-pointer active:scale-95 touch-manipulation"
                         title="Excluir dia"
+                        aria-label="Excluir dia"
                       >
-                        <Trash2 className="w-3.5 h-3.5" />
+                        <Trash2 className="w-3.5 h-3.5 text-slate-400 hover:text-rose-400 transition" />
                       </button>
                     </div>
                   </div>

@@ -14,9 +14,9 @@ export default defineConfig(() => {
         includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'icon.svg'],
         manifest: {
           id: '/',
-          name: 'Controle de Vendas & Lucro',
-          short_name: 'MinhasVendas',
-          description: 'Controle diário de vendas, lucro e média de faturamento mensal.',
+          name: 'MY Brechó - Controle de Vendas',
+          short_name: 'MY Brechó',
+          description: 'Controle diário de vendas, lucro e média de faturamento do MY Brechó.',
           theme_color: '#059669',
           background_color: '#0f172a',
           display: 'standalone',

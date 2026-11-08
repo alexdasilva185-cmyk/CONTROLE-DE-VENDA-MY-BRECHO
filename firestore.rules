@@ -21,25 +21,21 @@ service cloud.firestore {
 
     // User's private daily sales collection
     match /users/{userId}/sales/{saleId} {
-      allow read: if isOwner(userId);
-      allow create: if isOwner(userId)
-        && request.resource.data.userId == request.auth.uid
-        && request.resource.data.totalSales is number
-        && request.resource.data.cost is number
-        && request.resource.data.profit is number
-        && request.resource.data.salesCount is number;
-      allow update: if isOwner(userId)
-        && request.resource.data.userId == resource.data.userId
-        && request.resource.data.totalSales is number
-        && request.resource.data.cost is number;
-      allow delete: if isOwner(userId);
+      allow read, write: if isOwner(userId);
     }
 
     // User's private app settings & monthly goals
     match /users/{userId}/settings/{settingId} {
-      allow read: if isOwner(userId);
-      allow write: if isOwner(userId)
-        && request.resource.data.userId == request.auth.uid;
+      allow read, write: if isOwner(userId);
+    }
+
+    // Root collections fallback if user adds data directly at root in Firebase Console
+    match /sales/{saleId} {
+      allow read, write: if isSignedIn();
+    }
+
+    match /vendas/{saleId} {
+      allow read, write: if isSignedIn();
     }
   }
 }

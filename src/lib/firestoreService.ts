@@ -3,6 +3,7 @@ import {
   doc,
   setDoc,
   deleteDoc,
+  getDocs,
   onSnapshot,
 } from 'firebase/firestore';
 import { db, auth } from './firebase';
@@ -80,7 +81,241 @@ export function cleanForFirestore(obj: unknown): any {
   return cleaned;
 }
 
-// Subscribe to real-time sales for a user
+// Check if a document is an old mock/sample record
+export function isMockSaleDoc(data: any, docId?: string): boolean {
+  if (!data) return false;
+  if (data.isSample === true || data.isMock === true) return true;
+
+  const mockNotes = [
+    'vendas de balcão e whatsapp',
+    'dia bem movimentado',
+    'tarde mais calma',
+    'pico de pedidos no almoço',
+    'clientes fiéis',
+    'promoção de fim de semana',
+    'muitos pagamentos no pix',
+  ];
+  if (typeof data.notes === 'string' && mockNotes.includes(data.notes.toLowerCase().trim())) {
+    return true;
+  }
+
+  if (Array.isArray(data.entries)) {
+    for (const e of data.entries) {
+      if (e?.id && (String(e.id).includes('entry-2026-') || String(e.id).includes('entry-sample-'))) {
+        return true;
+      }
+    }
+  }
+
+  const samplePairs = [
+    { s: 780, c: 390 },
+    { s: 1150, c: 520 },
+    { s: 640, c: 290 },
+    { s: 1420, c: 630 },
+    { s: 980, c: 440 },
+    { s: 1850, c: 790 },
+    { s: 1290, c: 580 },
+  ];
+  const s = Number(data.totalSales ?? data.total ?? data.valor ?? 0);
+  const c = Number(data.cost ?? data.custo ?? 0);
+  const dateStr = String(data.date || docId || '');
+  if (samplePairs.some((p) => p.s === s && p.c === c) && dateStr.startsWith('2026-11-')) {
+    return true;
+  }
+
+  // Also purge the test entries from 07/11/2026
+  if (dateStr === '2026-11-07' || docId?.includes('2026-11-07')) {
+    return true;
+  }
+  if (Array.isArray(data.entries)) {
+    for (const e of data.entries) {
+      const amt = Number(e?.amount ?? e?.valor);
+      if (amt === 582 || amt === 35 || Math.abs(amt - 24.99) < 0.01) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
+// Purge all old mock/sample sales from the cloud
+export async function purgeMockSalesFromCloud(userId: string): Promise<number> {
+  let deletedCount = 0;
+  try {
+    const salesRef = collection(db, 'users', userId, 'sales');
+    const snapshot = await getDocs(salesRef);
+    for (const docSnap of snapshot.docs) {
+      if (isMockSaleDoc(docSnap.data(), docSnap.id)) {
+        await deleteDoc(docSnap.ref);
+        deletedCount++;
+      }
+    }
+  } catch (err) {
+    console.warn('Erro ao purgar dados mock da nuvem:', err);
+  }
+  return deletedCount;
+}
+
+function normalizeDate(rawDate?: unknown, docId?: string): string {
+  if (typeof rawDate === 'string') {
+    const trimmed = rawDate.trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return trimmed;
+    // Check DD/MM/YYYY
+    const brMatch = trimmed.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+    if (brMatch) {
+      const [, d, m, y] = brMatch;
+      return `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
+    }
+  }
+  if (docId && /^\d{4}-\d{2}-\d{2}$/.test(docId)) {
+    return docId;
+  }
+  return getTodaySafeDate();
+}
+
+// Parse any document format (including manual entries from Firebase Console) into DailySale
+export function parseSaleDocument(docId: string, data: any): DailySale {
+  const date = normalizeDate(data.date ?? data.data ?? data.dia, docId);
+  const totalSales = Math.max(0, Number(data.totalSales ?? data.total ?? data.valor ?? data.faturamento ?? data.venda ?? 0));
+  const cost = Math.max(0, Number(data.cost ?? data.custo ?? data.despesa ?? data.despesas ?? data.gastos ?? 0));
+
+  // Automatically calculate profit if missing
+  const profit =
+    data.profit !== undefined
+      ? Number(data.profit)
+      : data.lucro !== undefined
+      ? Number(data.lucro)
+      : totalSales - cost;
+
+  // Automatically calculate profit margin if missing
+  const profitMargin =
+    data.profitMargin !== undefined
+      ? Number(data.profitMargin)
+      : data.margem !== undefined
+      ? Number(data.margem)
+      : totalSales > 0
+      ? (profit / totalSales) * 100
+      : 0;
+
+  // Normalized sales count
+  const rawCount = Number(data.salesCount ?? data.quantidade ?? data.qtd ?? data.vendas);
+  const salesCount = Math.max(
+    1,
+    !isNaN(rawCount) && rawCount > 0
+      ? rawCount
+      : Array.isArray(data.entries) && data.entries.length > 0
+      ? data.entries.length
+      : 1
+  );
+
+  const averageTicket =
+    Number(data.averageTicket ?? data.ticketMedio ?? data.ticket_medio) ||
+    (salesCount > 0 ? totalSales / salesCount : totalSales);
+
+  // Parse payment methods supporting Portuguese and English keys
+  const pix = Number(data.paymentMethods?.pix ?? data.pix ?? 0);
+  const credit = Number(
+    data.paymentMethods?.credit ??
+      data.paymentMethods?.cartao ??
+      data.cartao ??
+      data.cartão ??
+      data.credito ??
+      data.debito ??
+      0
+  );
+  const cash = Number(data.paymentMethods?.cash ?? data.paymentMethods?.dinheiro ?? data.dinheiro ?? 0);
+
+  // Parse or synthesize entries
+  let entries: DailySale['entries'] = [];
+  if (Array.isArray(data.entries) && data.entries.length > 0) {
+    entries = data.entries.map((e: any, idx: number) => ({
+      id: e.id || `entry-${date}-${idx + 1}-${Date.now()}`,
+      amount: Number(e.amount ?? e.valor ?? 0),
+      paymentMethod:
+        e.paymentMethod === 'pix' || e.metodo === 'pix' || e.forma === 'pix'
+          ? 'pix'
+          : e.paymentMethod === 'card' ||
+            e.paymentMethod === 'cartao' ||
+            e.paymentMethod === 'credit' ||
+            e.forma === 'cartao'
+          ? 'card'
+          : 'cash',
+      time: e.time || e.hora || '12:00',
+      createdAt: e.createdAt || data.createdAt || new Date().toISOString(),
+    }));
+  } else if (totalSales > 0) {
+    // If entries weren't explicitly entered in Firebase Console, synthesize so the UI displays them
+    if (pix > 0) {
+      entries.push({
+        id: `entry-${docId}-pix`,
+        amount: pix,
+        paymentMethod: 'pix',
+        time: '12:00',
+        createdAt: data.createdAt || new Date().toISOString(),
+      });
+    }
+    if (credit > 0) {
+      entries.push({
+        id: `entry-${docId}-card`,
+        amount: credit,
+        paymentMethod: 'card',
+        time: '14:00',
+        createdAt: data.createdAt || new Date().toISOString(),
+      });
+    }
+    if (cash > 0) {
+      entries.push({
+        id: `entry-${docId}-cash`,
+        amount: cash,
+        paymentMethod: 'cash',
+        time: '16:00',
+        createdAt: data.createdAt || new Date().toISOString(),
+      });
+    }
+    if (entries.length === 0) {
+      entries.push({
+        id: `entry-${docId}-total`,
+        amount: totalSales,
+        paymentMethod: 'pix',
+        time: '12:00',
+        createdAt: data.createdAt || new Date().toISOString(),
+      });
+    }
+  }
+
+  return {
+    id: docId,
+    date,
+    totalSales,
+    cost,
+    profit,
+    profitMargin,
+    salesCount,
+    averageTicket,
+    paymentMethods: {
+      pix: pix > 0 ? pix : undefined,
+      credit: credit > 0 ? credit : undefined,
+      cash: cash > 0 ? cash : undefined,
+    },
+    entries,
+    costEntries: Array.isArray(data.costEntries)
+      ? data.costEntries.map((c: any, idx: number) => ({
+          id: c.id || `cost-${date}-${idx + 1}`,
+          amount: Number(c.amount ?? c.valor ?? 0),
+          description: c.description ?? c.descricao ?? c.motivo ?? 'Despesa/Custo',
+          category: c.category ?? c.categoria ?? 'Outros',
+          time: c.time ?? c.hora ?? '12:00',
+          createdAt: c.createdAt || new Date().toISOString(),
+        }))
+      : [],
+    notes: typeof data.notes === 'string' ? data.notes : typeof data.observacao === 'string' ? data.observacao : '',
+    createdAt: data.createdAt || new Date().toISOString(),
+    updatedAt: data.updatedAt || new Date().toISOString(),
+  };
+}
+
+// Subscribe to real-time sales for a user (listens to both users/{userId}/sales and auto-syncs)
 export function subscribeToUserSales(
   userId: string,
   onData: (sales: DailySale[]) => void,
@@ -89,36 +324,40 @@ export function subscribeToUserSales(
   const salesColPath = `users/${userId}/sales`;
   const salesRef = collection(db, 'users', userId, 'sales');
 
-  const unsubscribe = onSnapshot(
+  let activeSalesMap = new Map<string, DailySale>();
+
+  const emitSorted = () => {
+    const list = Array.from(activeSalesMap.values());
+    list.sort((a, b) => b.date.localeCompare(a.date));
+    onData(list);
+  };
+
+  const unsubscribePrimary = onSnapshot(
     salesRef,
     (snapshot) => {
-      const sales: DailySale[] = [];
+      const currentIds = new Set<string>();
       snapshot.forEach((docSnap) => {
         const data = docSnap.data();
-        sales.push({
-          id: docSnap.id,
-          date: data.date,
-          totalSales: Number(data.totalSales) || 0,
-          cost: Number(data.cost) || 0,
-          profit: Number(data.profit) || 0,
-          profitMargin: Number(data.profitMargin) || 0,
-          salesCount: Number(data.salesCount) || 1,
-          averageTicket: Number(data.averageTicket) || 0,
-          paymentMethods: data.paymentMethods ? {
-            pix: Number(data.paymentMethods.pix) || 0,
-            credit: Number(data.paymentMethods.credit) || 0,
-            debit: Number(data.paymentMethods.debit) || 0,
-            cash: Number(data.paymentMethods.cash) || 0,
-          } : undefined,
-          entries: Array.isArray(data.entries) ? data.entries : [],
-          notes: data.notes || '',
-          createdAt: data.createdAt || new Date().toISOString(),
-          updatedAt: data.updatedAt || new Date().toISOString(),
-        });
+
+        // If mock data is found in Firestore, permanently delete it!
+        if (isMockSaleDoc(data, docSnap.id)) {
+          deleteDoc(docSnap.ref).catch((e) => console.warn('Falha ao excluir mock:', e));
+          return;
+        }
+
+        const sale = parseSaleDocument(docSnap.id, data);
+        activeSalesMap.set(docSnap.id, sale);
+        currentIds.add(docSnap.id);
       });
-      // Sort newest first
-      sales.sort((a, b) => b.date.localeCompare(a.date));
-      onData(sales);
+
+      // Remove any docs that were deleted from primary collection
+      for (const key of Array.from(activeSalesMap.keys())) {
+        if (!currentIds.has(key) && !key.startsWith('root-')) {
+          activeSalesMap.delete(key);
+        }
+      }
+
+      emitSorted();
     },
     (error) => {
       try {
@@ -129,7 +368,9 @@ export function subscribeToUserSales(
     }
   );
 
-  return unsubscribe;
+  return () => {
+    unsubscribePrimary();
+  };
 }
 
 // Save or update a single daily sale
@@ -160,6 +401,14 @@ export async function saveSaleToCloud(userId: string, sale: DailySale): Promise<
         paymentMethod: e.paymentMethod || 'pix',
         time: e.time || '12:00',
         createdAt: e.createdAt || new Date().toISOString(),
+      })),
+      costEntries: (sale.costEntries || []).map((c) => ({
+        id: c.id || `cost-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        amount: Number(c.amount) || 0,
+        description: typeof c.description === 'string' ? c.description : 'Despesa/Custo',
+        category: typeof c.category === 'string' ? c.category : 'Outros',
+        time: c.time || '12:00',
+        createdAt: c.createdAt || new Date().toISOString(),
       })),
       notes: typeof sale.notes === 'string' ? sale.notes : '',
       userId,
@@ -192,13 +441,31 @@ export async function deleteSaleFromCloud(userId: string, saleId: string): Promi
   }
 }
 
+// Clear all sales for a user from Firestore
+export async function clearAllUserSalesFromCloud(userId: string): Promise<number> {
+  const path = `users/${userId}/sales`;
+  let count = 0;
+  try {
+    const salesRef = collection(db, 'users', userId, 'sales');
+    const snapshot = await getDocs(salesRef);
+    const deletePromises = snapshot.docs.map((docSnap) => {
+      count++;
+      return deleteDoc(docSnap.ref);
+    });
+    await Promise.all(deletePromises);
+  } catch (error) {
+    handleFirestoreError(error, OperationType.DELETE, path);
+  }
+  return count;
+}
+
 // Save app settings
 export async function saveSettingsToCloud(userId: string, settings: AppSettings): Promise<void> {
   const path = `users/${userId}/settings/config`;
   try {
     const docRef = doc(db, 'users', userId, 'settings', 'config');
     const safeData = cleanForFirestore({
-      businessName: settings.businessName || 'Meu Negócio',
+      businessName: settings.businessName || 'MY Brechó',
       monthlyGoal: Number(settings.monthlyGoal) || 15000,
       defaultProfitMargin: Number(settings.defaultProfitMargin) || 50,
       defaultCalculationMode: settings.defaultCalculationMode || 'cost',
@@ -229,7 +496,7 @@ export function subscribeToUserSettings(
           monthlyGoal: Number(data.monthlyGoal) || 15000,
           defaultProfitMargin: Number(data.defaultProfitMargin) || 50,
           defaultCalculationMode: data.defaultCalculationMode || 'cost',
-          businessName: data.businessName || 'Meu Negócio',
+          businessName: data.businessName && data.businessName !== 'Meu Negócio' ? data.businessName : 'MY Brechó',
         });
       }
     },

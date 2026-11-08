@@ -8,7 +8,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   monthlyGoal: 15000,
   defaultProfitMargin: 45,
   defaultCalculationMode: 'cost',
-  businessName: 'Meu Negócio',
+  businessName: 'MY Brechó',
 };
 
 // Generates friendly realistic sample data for the current month up to today
@@ -99,16 +99,76 @@ export function generateInitialSampleSales(): DailySale[] {
   return samples;
 }
 
+export function isMockSale(sale: any): boolean {
+  if (!sale) return false;
+  if (sale.isSample === true || sale.isMock === true) return true;
+
+  const mockNotes = [
+    'vendas de balcão e whatsapp',
+    'dia bem movimentado',
+    'tarde mais calma',
+    'pico de pedidos no almoço',
+    'clientes fiéis',
+    'promoção de fim de semana',
+    'muitos pagamentos no pix',
+  ];
+  if (typeof sale.notes === 'string' && mockNotes.includes(sale.notes.toLowerCase().trim())) {
+    return true;
+  }
+
+  if (Array.isArray(sale.entries)) {
+    for (const e of sale.entries) {
+      if (e?.id && (e.id.includes('entry-2026-') || e.id.includes('entry-sample-'))) {
+        return true;
+      }
+    }
+  }
+
+  const samplePairs = [
+    { s: 780, c: 390 },
+    { s: 1150, c: 520 },
+    { s: 640, c: 290 },
+    { s: 1420, c: 630 },
+    { s: 980, c: 440 },
+    { s: 1850, c: 790 },
+    { s: 1290, c: 580 },
+  ];
+  const s = Number(sale.totalSales || 0);
+  const c = Number(sale.cost || 0);
+  if (samplePairs.some((p) => p.s === s && p.c === c) && typeof sale.date === 'string' && sale.date.startsWith('2026-11-')) {
+    return true;
+  }
+
+  // Also purge test items from 2026-11-07
+  if (sale.date === '2026-11-07') {
+    return true;
+  }
+  if (Array.isArray(sale.entries)) {
+    for (const e of sale.entries) {
+      const amt = Number(e?.amount);
+      if (amt === 582 || amt === 35 || Math.abs(amt - 24.99) < 0.01) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
 export function loadSalesFromStorage(): DailySale[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEY_SALES);
     if (!raw) {
-      const initial = generateInitialSampleSales();
-      saveSalesToStorage(initial);
-      return initial;
+      saveSalesToStorage([]);
+      return [];
     }
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
+    if (!Array.isArray(parsed)) return [];
+    const cleaned = parsed.filter((s) => !isMockSale(s));
+    if (cleaned.length !== parsed.length) {
+      saveSalesToStorage(cleaned);
+    }
+    return cleaned;
   } catch (err) {
     console.error('Erro ao carregar vendas do localStorage', err);
     return [];
@@ -117,7 +177,8 @@ export function loadSalesFromStorage(): DailySale[] {
 
 export function saveSalesToStorage(sales: DailySale[]): void {
   try {
-    localStorage.setItem(STORAGE_KEY_SALES, JSON.stringify(sales));
+    const cleaned = sales.filter((s) => !isMockSale(s));
+    localStorage.setItem(STORAGE_KEY_SALES, JSON.stringify(cleaned));
   } catch (err) {
     console.error('Erro ao salvar vendas no localStorage', err);
   }
@@ -130,7 +191,13 @@ export function loadSettingsFromStorage(): AppSettings {
       saveSettingsToStorage(DEFAULT_SETTINGS);
       return DEFAULT_SETTINGS;
     }
-    return { ...DEFAULT_SETTINGS, ...JSON.parse(raw) };
+    const parsed = JSON.parse(raw);
+    const settings = { ...DEFAULT_SETTINGS, ...parsed };
+    if (!settings.businessName || settings.businessName === 'Meu Negócio') {
+      settings.businessName = 'MY Brechó';
+      saveSettingsToStorage(settings);
+    }
+    return settings;
   } catch (err) {
     console.error('Erro ao carregar configurações', err);
     return DEFAULT_SETTINGS;

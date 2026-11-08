@@ -30,9 +30,11 @@ export function calculateMonthSummary(
     totalCost += sale.cost;
     totalProfit += sale.profit;
     totalSalesCount += sale.salesCount;
-    daysWithSalesSet.add(sale.date);
+    if (sale.totalSales > 0) {
+      daysWithSalesSet.add(sale.date);
+    }
 
-    if (!bestDay || sale.totalSales > bestDay.revenue) {
+    if (sale.totalSales > 0 && (!bestDay || sale.totalSales > bestDay.revenue)) {
       bestDay = {
         date: sale.date,
         revenue: sale.totalSales,

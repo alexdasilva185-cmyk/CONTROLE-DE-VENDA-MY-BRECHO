@@ -36,7 +36,7 @@ export const Header: React.FC<HeaderProps> = ({
           </div>
           <div className="min-w-0">
             <h1 className="text-base font-extrabold tracking-tight text-white leading-tight truncate">
-              {businessName || 'Controle de Vendas'}
+              {businessName || 'MY Brechó'}
             </h1>
             <p className="text-[11px] font-medium text-emerald-400 flex items-center gap-1.5 truncate">
               <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>

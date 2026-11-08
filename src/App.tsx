@@ -31,6 +31,7 @@ export default function App() {
     deleteSaleEntry,
     updateSettings,
     clearAllData,
+    purgeMockData,
     resetToSampleData,
     importData,
   } = useSalesData();
@@ -132,6 +133,7 @@ export default function App() {
               sales={sales}
               onUpdateSettings={updateSettings}
               onClearAll={clearAllData}
+              onPurgeMock={purgeMockData}
               onResetSample={resetToSampleData}
               onImportData={importData}
             />

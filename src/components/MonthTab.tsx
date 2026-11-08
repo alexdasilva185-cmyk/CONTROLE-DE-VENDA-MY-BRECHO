@@ -23,13 +23,21 @@ import {
   Edit2,
   Receipt,
   ShoppingBag,
+  PlusCircle,
 } from 'lucide-react';
+import { AddCostModal } from './AddCostModal';
 
 interface MonthTabProps {
   summary: MonthSummary;
   monthSales: DailySale[];
   settings: AppSettings;
   onOpenNewSale: (saleToEdit?: DailySale) => void;
+  onAddCost?: (costInput: {
+    date: string;
+    amount: number;
+    description: string;
+    category?: string;
+  }) => Promise<void> | void;
 }
 
 export const MonthTab: React.FC<MonthTabProps> = ({
@@ -37,9 +45,11 @@ export const MonthTab: React.FC<MonthTabProps> = ({
   monthSales,
   settings,
   onOpenNewSale,
+  onAddCost,
 }) => {
   const [selectedDayHover, setSelectedDayHover] = useState<DailySale | null>(null);
   const [copiedShare, setCopiedShare] = useState(false);
+  const [isCostModalOpen, setIsCostModalOpen] = useState(false);
 
   const handleShareWhatsApp = () => {
     const text = generateMonthlyWhatsAppText(summary, settings.businessName);
@@ -77,6 +87,15 @@ export const MonthTab: React.FC<MonthTabProps> = ({
         </div>
 
         <div className="flex items-center gap-1.5">
+          <button
+            type="button"
+            onClick={() => setIsCostModalOpen(true)}
+            className="flex items-center gap-1 text-[11px] font-bold text-amber-300 bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 px-2.5 py-1.5 rounded-xl transition cursor-pointer shadow-sm active:scale-95 touch-manipulation"
+            title="Adicionar Custo / Despesa do Mês"
+          >
+            <PlusCircle className="w-3.5 h-3.5 text-amber-400" />
+            <span>+ Custo</span>
+          </button>
           <button
             onClick={handleShareWhatsApp}
             className="flex items-center gap-1 text-[11px] font-bold text-slate-200 bg-emerald-600/80 hover:bg-emerald-600 px-3 py-1.5 rounded-xl transition cursor-pointer shadow-sm"
@@ -164,9 +183,20 @@ export const MonthTab: React.FC<MonthTabProps> = ({
         </div>
 
         <div className="rounded-2xl bg-slate-900 border border-slate-800 p-4">
-          <div className="flex items-center gap-1.5 text-xs font-bold text-slate-400">
-            <Receipt className="w-3.5 h-3.5 text-amber-400" />
-            <span>Custo Total do Mês</span>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-1.5 text-xs font-bold text-slate-400">
+              <Receipt className="w-3.5 h-3.5 text-amber-400" />
+              <span>Custo Total do Mês</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setIsCostModalOpen(true)}
+              className="flex items-center gap-1 text-[10px] font-bold text-amber-300 bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 px-2 py-0.5 rounded-lg transition cursor-pointer active:scale-95 touch-manipulation"
+              title="Adicionar custo ou despesa do mês"
+            >
+              <PlusCircle className="w-3 h-3 text-amber-400" />
+              <span>+ Custo</span>
+            </button>
           </div>
           <p className="mt-1 text-lg font-bold text-slate-300 font-mono">
             {formatCurrency(summary.totalCost)}
@@ -426,6 +456,15 @@ export const MonthTab: React.FC<MonthTabProps> = ({
           </div>
         )}
       </div>
+
+      {/* Modal for adding monthly costs / expenses */}
+      {onAddCost && (
+        <AddCostModal
+          isOpen={isCostModalOpen}
+          onClose={() => setIsCostModalOpen(false)}
+          onSaveCost={onAddCost}
+        />
+      )}
     </div>
   );
 };
