@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { DailySale, AppSettings } from '../types/sales';
 import { exportSalesToCSV } from '../utils/storage';
 import { syncLocalSalesToCloud } from '../lib/firestoreService';
@@ -65,14 +65,23 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
   const [showAuthHelper, setShowAuthHelper] = useState(false);
   const [confirmZerarStep, setConfirmZerarStep] = useState(false);
 
+  // Sync state whenever settings change (e.g. from cloud or initial load)
+  useEffect(() => {
+    if (settings.businessName) setBusinessName(settings.businessName);
+    if (settings.defaultProfitMargin !== undefined) {
+      setDefaultMargin(String(settings.defaultProfitMargin));
+    }
+  }, [settings.businessName, settings.defaultProfitMargin]);
+
   const handleSaveGeneral = (e: React.FormEvent) => {
     e.preventDefault();
+    const marginNum = Math.min(100, Math.max(1, parseFloat(defaultMargin) || 80));
     onUpdateSettings({
-      businessName: businessName.trim() || 'Meu Negócio',
-      defaultProfitMargin: parseFloat(defaultMargin) || 50,
+      businessName: businessName.trim() || 'MY Brechó',
+      defaultProfitMargin: marginNum,
     });
     setSavedSuccess(true);
-    setTimeout(() => setSavedSuccess(false), 2000);
+    setTimeout(() => setSavedSuccess(false), 3000);
   };
 
   const handleManualCloudSync = async () => {
@@ -320,8 +329,28 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
             />
             <span className="absolute right-3 top-2.5 text-sm font-bold text-slate-400">%</span>
           </div>
-          <p className="text-[11px] text-slate-400 mt-1">
-            Usada quando você preferir calcular o lucro por porcentagem estimada.
+
+          {/* Quick preset chips */}
+          <div className="mt-2 flex items-center gap-1.5 overflow-x-auto pb-0.5 text-xs">
+            <span className="text-[10px] text-slate-400 uppercase font-semibold">Atalhos:</span>
+            {[50, 70, 80, 85, 90].map((val) => (
+              <button
+                type="button"
+                key={val}
+                onClick={() => setDefaultMargin(String(val))}
+                className={`px-2 py-0.5 rounded-lg border text-xs font-mono transition cursor-pointer ${
+                  defaultMargin === String(val)
+                    ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500 font-bold'
+                    : 'bg-slate-800 text-slate-300 hover:bg-slate-750 border-slate-700'
+                }`}
+              >
+                {val}%
+              </button>
+            ))}
+          </div>
+
+          <p className="text-[11px] text-emerald-400/90 mt-1.5 leading-tight">
+            ⚡ Ao salvar, o lucro diário e a média de margem do mês são <strong>atualizados automaticamente</strong> com a porcentagem escolhida.
           </p>
         </div>
 
@@ -332,7 +361,7 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
           {savedSuccess ? (
             <>
               <Check className="w-4 h-4" />
-              <span>Ajustes Salvos!</span>
+              <span>Margem salva em {defaultMargin}%! Médias recalculadas.</span>
             </>
           ) : (
             <span>Salvar Ajustes</span>

@@ -23,6 +23,36 @@ import { useAuth } from '../context/AuthContext';
 import { calculateMonthSummary } from '../utils/calculations';
 import { getTodayDateString } from '../utils/formatters';
 
+function applyMarginToSales(salesList: DailySale[], marginPct: number): DailySale[] {
+  if (isNaN(marginPct) || marginPct <= 0 || marginPct > 100) return salesList;
+  return salesList.map((s) => {
+    // If the sale has manual cost entries (from + Custo), keep those explicit actual costs
+    const hasManualCosts = Array.isArray(s.costEntries) && s.costEntries.length > 0;
+    if (hasManualCosts) {
+      const manualCost = s.costEntries!.reduce((acc, c) => acc + (Number(c.amount) || 0), 0);
+      const profit = s.totalSales - manualCost;
+      const profitMargin = s.totalSales > 0 ? (profit / s.totalSales) * 100 : 0;
+      return {
+        ...s,
+        cost: manualCost,
+        profit,
+        profitMargin,
+      };
+    }
+
+    // Recalculate profit and cost based on the configured profit margin percentage
+    const profit = Math.round(((s.totalSales * marginPct) / 100 + Number.EPSILON) * 100) / 100;
+    const cost = Math.round((s.totalSales - profit + Number.EPSILON) * 100) / 100;
+    return {
+      ...s,
+      profit,
+      cost,
+      profitMargin: marginPct,
+      updatedAt: new Date().toISOString(),
+    };
+  });
+}
+
 export function useSalesData() {
   const { user } = useAuth();
   const [sales, setSales] = useState<DailySale[]>([]);
@@ -37,7 +67,13 @@ export function useSalesData() {
   useEffect(() => {
     const loadedSales = loadSalesFromStorage();
     const loadedSettings = loadSettingsFromStorage();
-    setSales(loadedSales);
+    const activeMargin = loadedSettings.defaultProfitMargin || 80;
+
+    // Harmonize loaded sales with active profit margin
+    const aligned = applyMarginToSales(loadedSales, activeMargin);
+    setSales(aligned);
+    saveSalesToStorage(aligned);
+
     setSettings(loadedSettings);
     setIsLoaded(true);
   }, []);
@@ -91,6 +127,15 @@ export function useSalesData() {
       (cloudSettings) => {
         setSettings(cloudSettings);
         saveSettingsToStorage(cloudSettings);
+
+        // When cloud settings arrive, harmonize existing sales with active profit margin
+        if (cloudSettings.defaultProfitMargin) {
+          setSales((prev) => {
+            const aligned = applyMarginToSales(prev, cloudSettings.defaultProfitMargin);
+            saveSalesToStorage(aligned);
+            return aligned;
+          });
+        }
       },
       (err) => {
         console.warn('Erro ao carregar configurações da nuvem:', err);
@@ -219,6 +264,24 @@ export function useSalesData() {
       const updated = { ...settings, ...partial };
       setSettings(updated);
       saveSettingsToStorage(updated);
+
+      // If defaultProfitMargin is altered, automatically recalculate and update all sales!
+      const newMargin = partial.defaultProfitMargin;
+      if (newMargin !== undefined && !isNaN(newMargin) && newMargin > 0 && newMargin <= 100) {
+        setSales((prev) => {
+          const recalculated = applyMarginToSales(prev, newMargin);
+          saveSalesToStorage(recalculated);
+
+          // Update in Firestore for real-time cloud synchronization
+          if (user) {
+            syncLocalSalesToCloud(user.uid, recalculated).catch((err) =>
+              console.warn('Erro ao atualizar vendas com a nova margem no Firestore:', err)
+            );
+          }
+
+          return recalculated;
+        });
+      }
 
       if (user) {
         try {

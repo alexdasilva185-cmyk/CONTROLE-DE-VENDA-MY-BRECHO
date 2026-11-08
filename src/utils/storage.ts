@@ -6,7 +6,7 @@ const STORAGE_KEY_SETTINGS = 'minhas_vendas_settings_v1';
 
 export const DEFAULT_SETTINGS: AppSettings = {
   monthlyGoal: 15000,
-  defaultProfitMargin: 45,
+  defaultProfitMargin: 80,
   defaultCalculationMode: 'cost',
   businessName: 'MY Brechó',
 };
