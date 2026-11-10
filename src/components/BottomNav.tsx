@@ -42,7 +42,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({
           }`}
         >
           <BarChart3 className="w-4.5 h-4.5 mb-0.5" />
-          <span className="text-[9px]">Médias</span>
+          <span className="text-[9px]">Mês</span>
         </button>
 
         {/* Tab: Vale-Crédito */}

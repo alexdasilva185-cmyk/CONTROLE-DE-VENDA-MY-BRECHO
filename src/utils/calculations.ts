@@ -55,15 +55,20 @@ export function calculateMonthSummary(
   }
 
   const daysWithSales = daysWithSalesSet.size;
-  const averageProfitMargin = totalRevenue > 0 ? (totalProfit / totalRevenue) * 100 : 0;
+  const averageProfitMargin = totalRevenue > 0 ? (totalProfit / totalRevenue) * 100 : 100;
+
+  // 1. Média por dia em que houve vendas registradas (dias ativos)
   const dailyAverageRevenue = daysWithSales > 0 ? totalRevenue / daysWithSales : 0;
-  const calendarDailyAverageRevenue = totalDaysInMonth > 0 ? totalRevenue / totalDaysInMonth : 0;
   const dailyAverageProfit = daysWithSales > 0 ? totalProfit / daysWithSales : 0;
   const averageTicket = totalSalesCount > 0 ? totalRevenue / totalSalesCount : 0;
 
-  // Projection logic
+  // 2. Média por dias corridos do mês até a data de hoje
   const now = new Date();
   const isCurrentMonth = now.getFullYear() === year && now.getMonth() + 1 === month;
+  const elapsedDaysInMonth = isCurrentMonth ? Math.max(1, now.getDate()) : totalDaysInMonth;
+  const calendarDailyAverageRevenue = elapsedDaysInMonth > 0 ? totalRevenue / elapsedDaysInMonth : 0;
+
+  // Projection logic
   let projectedRevenue = totalRevenue;
   let projectedProfit = totalProfit;
 
@@ -90,6 +95,7 @@ export function calculateMonthSummary(
     totalSalesCount,
     daysWithSales,
     totalDaysInMonth,
+    elapsedDaysInMonth,
     dailyAverageRevenue,
     calendarDailyAverageRevenue,
     dailyAverageProfit,

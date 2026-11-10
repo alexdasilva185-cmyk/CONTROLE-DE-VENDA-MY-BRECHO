@@ -49,7 +49,8 @@ export interface MonthSummary {
   totalSalesCount: number;
   daysWithSales: number;
   totalDaysInMonth: number;
-  dailyAverageRevenue: number; // Média por dia trabalhado (com vendas)
+  elapsedDaysInMonth: number; // Dias decorridos do mês até hoje
+  dailyAverageRevenue: number; // Média por dia com vendas
   calendarDailyAverageRevenue: number; // Média por dia corrido do mês
   dailyAverageProfit: number;
   averageTicket: number;
