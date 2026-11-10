@@ -15,6 +15,18 @@ export interface CostEntry {
   createdAt: string;
 }
 
+export interface TransactionItem {
+  id: string;
+  type: 'sale' | 'cost';
+  amount: number;
+  paymentMethod?: 'pix' | 'cash' | 'card';
+  category?: string;
+  description?: string;
+  time: string;
+  date: string;
+  createdAt: string;
+}
+
 export interface DailySale {
   id: string;
   date: string; // YYYY-MM-DD

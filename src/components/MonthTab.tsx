@@ -495,37 +495,92 @@ export const MonthTab: React.FC<MonthTabProps> = ({
           </div>
         ) : (
           <div className="divide-y divide-slate-800/80">
-            {monthSales.map((sale) => (
-              <div
-                key={sale.id}
-                className="py-2.5 flex items-center justify-between hover:bg-slate-850/50 px-1 rounded-xl transition"
-              >
-                <div>
-                  <span className="text-xs font-bold text-white">{formatDateBR(sale.date)}</span>
-                  <p className="text-[11px] text-slate-400">
-                    {sale.salesCount} vendas • Custo: {formatCurrency(sale.cost)}
-                  </p>
-                </div>
+            {monthSales.map((sale) => {
+              const isOnlyCost = (sale.totalSales === 0 || !sale.totalSales) && (sale.cost > 0 || (sale.costEntries && sale.costEntries.length > 0));
+              const isOnlySales = sale.totalSales > 0 && (!sale.cost || sale.cost === 0);
+              const hasBoth = sale.totalSales > 0 && sale.cost > 0;
 
-                <div className="flex items-center gap-3">
-                  <div className="text-right">
-                    <p className="text-xs font-bold text-white font-mono">
-                      {formatCurrency(sale.totalSales)}
-                    </p>
-                    <p className="text-[11px] font-bold text-emerald-400 font-mono">
-                      Lucro: {formatCurrency(sale.profit)} ({formatPercent(sale.profitMargin)})
+              return (
+                <div
+                  key={sale.id}
+                  className={`py-2.5 px-2 flex items-center justify-between rounded-xl transition ${
+                    isOnlyCost ? 'hover:bg-amber-950/20' : 'hover:bg-slate-850/50'
+                  }`}
+                >
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-bold text-white">{formatDateBR(sale.date)}</span>
+                      {isOnlyCost && (
+                        <span className="text-[9px] font-black uppercase text-amber-300 bg-amber-950/80 border border-amber-800/60 px-1.5 py-0.5 rounded-md">
+                          Custo
+                        </span>
+                      )}
+                      {isOnlySales && (
+                        <span className="text-[9px] font-black uppercase text-emerald-300 bg-emerald-950/80 border border-emerald-800/60 px-1.5 py-0.5 rounded-md">
+                          Venda
+                        </span>
+                      )}
+                      {hasBoth && (
+                        <span className="text-[9px] font-black uppercase text-teal-300 bg-teal-950/80 border border-teal-800/60 px-1.5 py-0.5 rounded-md">
+                          Venda + Custo
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[11px] text-slate-400 mt-0.5">
+                      {isOnlyCost && `Sem vendas • Custo: ${formatCurrency(sale.cost)}`}
+                      {isOnlySales && `${sale.salesCount} ${sale.salesCount === 1 ? 'venda' : 'vendas'} • Sem custos`}
+                      {hasBoth && `${sale.salesCount} ${sale.salesCount === 1 ? 'venda' : 'vendas'} • Custo: ${formatCurrency(sale.cost)}`}
                     </p>
                   </div>
-                  <button
-                    onClick={() => onOpenNewSale(sale)}
-                    className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition"
-                    title="Editar"
-                  >
-                    <Edit2 className="w-3.5 h-3.5" />
-                  </button>
+
+                  <div className="flex items-center gap-3">
+                    <div className="text-right">
+                      {isOnlyCost ? (
+                        <>
+                          <p className="text-xs font-bold text-amber-400 font-mono">
+                            - {formatCurrency(sale.cost)}
+                          </p>
+                          <p className="text-[11px] font-bold text-amber-300/90 font-mono">
+                            Saída do Negócio
+                          </p>
+                        </>
+                      ) : isOnlySales ? (
+                        <>
+                          <p className="text-xs font-bold text-white font-mono">
+                            {formatCurrency(sale.totalSales)}
+                          </p>
+                          <p className="text-[11px] font-bold text-emerald-400 font-mono">
+                            Lucro: {formatCurrency(sale.profit)} (100% limpo)
+                          </p>
+                        </>
+                      ) : (
+                        <>
+                          <p className="text-xs font-bold text-white font-mono">
+                            {formatCurrency(sale.totalSales)}
+                          </p>
+                          <p
+                            className={`text-[11px] font-bold font-mono ${
+                              sale.profit >= 0 ? 'text-emerald-400' : 'text-rose-400'
+                            }`}
+                          >
+                            {sale.profit >= 0
+                              ? `Lucro: ${formatCurrency(sale.profit)} (${formatPercent(sale.profitMargin)})`
+                              : `Prejuízo: ${formatCurrency(sale.profit)}`}
+                          </p>
+                        </>
+                      )}
+                    </div>
+                    <button
+                      onClick={() => onOpenNewSale(sale)}
+                      className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition cursor-pointer"
+                      title="Editar"
+                    >
+                      <Edit2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>

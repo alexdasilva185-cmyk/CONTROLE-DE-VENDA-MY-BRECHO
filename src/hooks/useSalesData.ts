@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { DailySale, AppSettings, CostEntry } from '../types/sales';
+import { DailySale, AppSettings, CostEntry, TransactionItem } from '../types/sales';
 import {
   loadSalesFromStorage,
   saveSalesToStorage,
@@ -25,23 +25,49 @@ import { getTodayDateString, getCurrentBrazilianTimeString } from '../utils/form
 
 function applyMarginToSales(salesList: DailySale[], marginPct: number): DailySale[] {
   return salesList.map((s) => {
-    // If the sale has manual cost entries (from + Custo), keep those explicit actual costs
     const hasManualCosts = Array.isArray(s.costEntries) && s.costEntries.length > 0;
-    if (hasManualCosts) {
-      const manualCost = s.costEntries!.reduce((acc, c) => acc + (Number(c.amount) || 0), 0);
-      const profit = s.totalSales - manualCost;
-      const profitMargin = s.totalSales > 0 ? (profit / s.totalSales) * 100 : 0;
+    const manualCost = hasManualCosts
+      ? s.costEntries!.reduce((acc, c) => acc + (Number(c.amount) || 0), 0)
+      : (Number(s.cost) || 0);
+
+    // If day has NO sales (pure cost/expense day)
+    if (!s.totalSales || s.totalSales <= 0) {
       return {
         ...s,
+        totalSales: 0,
+        salesCount: 0,
+        averageTicket: 0,
+        cost: manualCost,
+        profit: -manualCost,
+        profitMargin: 0,
+        entries: [],
+        updatedAt: s.updatedAt || new Date().toISOString(),
+      };
+    }
+
+    const actualSalesCount = Array.isArray(s.entries) && s.entries.length > 0
+      ? s.entries.length
+      : Math.max(1, s.salesCount || 1);
+
+    if (hasManualCosts || manualCost > 0) {
+      const profit = s.totalSales - manualCost;
+      const profitMargin = (profit / s.totalSales) * 100;
+      return {
+        ...s,
+        salesCount: actualSalesCount,
+        averageTicket: s.totalSales / actualSalesCount,
         cost: manualCost,
         profit,
         profitMargin,
+        updatedAt: s.updatedAt || new Date().toISOString(),
       };
     }
 
     // In MY Brechó, if no costs were added by the user, cost is R$ 0,00 and profit is 100% clean
     return {
       ...s,
+      salesCount: actualSalesCount,
+      averageTicket: s.totalSales / actualSalesCount,
       cost: 0,
       profit: s.totalSales,
       profitMargin: 100,
@@ -113,12 +139,23 @@ export function useSalesData() {
           }
         }
 
-        // Cloud is authoritative: sync cloud sales
-        setSales(cloudSales);
-        salesRef.current = cloudSales;
-        saveSalesToStorage(cloudSales);
+        // Cloud is authoritative: harmonize and align cloud sales
+        const aligned = applyMarginToSales(cloudSales, 80);
+        setSales(aligned);
+        salesRef.current = aligned;
+        saveSalesToStorage(aligned);
         setIsSyncing(false);
         setCloudSynced(true);
+
+        // If any record in cloud had totalSales === 0 but salesCount > 0 or profitMargin > 0, heal it in Firestore
+        const hadInconsistent = cloudSales.some(
+          (s) => s.totalSales === 0 && ((s.salesCount || 0) > 0 || (s.profitMargin || 0) > 0)
+        );
+        if (hadInconsistent) {
+          syncLocalSalesToCloud(user.uid, aligned).catch((err) =>
+            console.warn('Erro ao sincronizar correção de dias com custo puro na nuvem:', err)
+          );
+        }
       },
       (err) => {
         console.warn('Erro ao carregar vendas da nuvem:', err);
@@ -618,30 +655,143 @@ export function useSalesData() {
   );
 
 
-  const allRecentTransactions = useMemo(() => {
-    const list: Array<{
-      id: string;
-      amount: number;
-      paymentMethod: 'pix' | 'cash' | 'card';
-      time: string;
-      date: string;
-      createdAt: string;
-    }> = [];
+  const convertSaleEntryToCost = useCallback(
+    async (date: string, entryId: string, category?: string, description?: string) => {
+      const day = salesRef.current.find((s) => s.date === date);
+      if (!day) return;
+
+      let entries = [...(day.entries || [])];
+      let entryIndex = entries.findIndex((e) => e.id === entryId);
+
+      // Match legacy or synthesized id if needed
+      if (entryIndex < 0 && (entryId.startsWith('entry-') || entryId.includes('-'))) {
+        entryIndex = entries.findIndex((e) => {
+          if (entryId.endsWith('-pix') && e.paymentMethod === 'pix') return true;
+          if (entryId.endsWith('-card') && e.paymentMethod === 'card') return true;
+          if (entryId.endsWith('-cash') && e.paymentMethod === 'cash') return true;
+          return false;
+        });
+      }
+
+      let convertedAmount = 0;
+      let convertedTime = getCurrentBrazilianTimeString();
+
+      if (entryIndex >= 0) {
+        const removed = entries.splice(entryIndex, 1)[0];
+        convertedAmount = Number(removed.amount) || 0;
+        if (removed.time) convertedTime = removed.time;
+      } else if (day.totalSales > 0) {
+        convertedAmount = day.totalSales;
+        entries = [];
+      }
+
+      if (convertedAmount <= 0) return;
+
+      const now = new Date().toISOString();
+      const newCostEntry: CostEntry = {
+        id: `cost-${date}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        amount: convertedAmount,
+        description: description?.trim() || 'Custo do Negócio',
+        category: category || 'Mercadoria / Estoque',
+        time: convertedTime,
+        createdAt: now,
+      };
+
+      const updatedCostEntries = [...(day.costEntries || []), newCostEntry];
+      const newTotalSales = entries.reduce((acc, e) => acc + (Number(e.amount) || 0), 0);
+      const newPix = entries.filter((e) => e.paymentMethod === 'pix').reduce((acc, e) => acc + (Number(e.amount) || 0), 0);
+      const newCard = entries.filter((e) => e.paymentMethod === 'card').reduce((acc, e) => acc + (Number(e.amount) || 0), 0);
+      const newCash = entries.filter((e) => e.paymentMethod === 'cash').reduce((acc, e) => acc + (Number(e.amount) || 0), 0);
+
+      const newCost = updatedCostEntries.reduce((acc, c) => acc + (Number(c.amount) || 0), 0);
+      const newProfit = newTotalSales - newCost;
+      const newMargin = newTotalSales > 0 ? (newProfit / newTotalSales) * 100 : 0;
+      const dayId = day.id || `sale-${date}`;
+
+      const updatedDayRecord: DailySale = {
+        ...day,
+        id: dayId,
+        date,
+        totalSales: newTotalSales,
+        cost: newCost,
+        profit: newProfit,
+        profitMargin: newMargin,
+        salesCount: entries.length,
+        averageTicket: entries.length > 0 ? newTotalSales / entries.length : 0,
+        paymentMethods: {
+          pix: newPix > 0 ? newPix : undefined,
+          credit: newCard > 0 ? newCard : undefined,
+          cash: newCash > 0 ? newCash : undefined,
+        },
+        entries,
+        costEntries: updatedCostEntries,
+        updatedAt: now,
+      };
+
+      setSales((prev) => {
+        const idx = prev.findIndex((s) => s.date === date);
+        const next = idx >= 0 ? prev.map((s, i) => (i === idx ? updatedDayRecord : s)) : [updatedDayRecord, ...prev];
+        const sorted = next.sort((a, b) => b.date.localeCompare(a.date));
+        salesRef.current = sorted;
+        saveSalesToStorage(sorted);
+        return sorted;
+      });
+
+      if (user) {
+        try {
+          await saveSaleToCloud(user.uid, updatedDayRecord);
+          console.log('[Firestore] Venda convertida em custo com sucesso:', date, convertedAmount);
+        } catch (err) {
+          console.error('[Firestore] Erro ao sincronizar conversão no Firestore:', err);
+        }
+      }
+    },
+    [user]
+  );
+
+  const allRecentTransactions = useMemo((): TransactionItem[] => {
+    const list: TransactionItem[] = [];
 
     for (const day of sales) {
+      // 1. Sales entries
       if (day.entries && day.entries.length > 0) {
         for (const entry of day.entries) {
-          list.push({ ...entry, date: day.date });
+          list.push({
+            id: entry.id,
+            type: 'sale',
+            amount: entry.amount,
+            paymentMethod: entry.paymentMethod,
+            time: entry.time || '12:00',
+            date: day.date,
+            createdAt: entry.createdAt || `${day.date}T${entry.time || '12:00'}:00.000Z`,
+          });
         }
       } else if (day.totalSales > 0) {
         list.push({
           id: `legacy-${day.id}`,
+          type: 'sale',
           amount: day.totalSales,
           paymentMethod: (day.paymentMethods?.pix || 0) >= (day.paymentMethods?.cash || 0) ? 'pix' : 'cash',
           time: '18:00',
           createdAt: day.createdAt,
           date: day.date,
         });
+      }
+
+      // 2. Cost entries
+      if (Array.isArray(day.costEntries) && day.costEntries.length > 0) {
+        for (const cost of day.costEntries) {
+          list.push({
+            id: cost.id,
+            type: 'cost',
+            amount: cost.amount,
+            category: cost.category || 'Outros Gastos',
+            description: cost.description,
+            time: cost.time || '12:00',
+            date: day.date,
+            createdAt: cost.createdAt || `${day.date}T${cost.time || '12:00'}:00.000Z`,
+          });
+        }
       }
     }
 
@@ -663,6 +813,93 @@ export function useSalesData() {
     return list.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   }, [sales, selectedYear, selectedMonth]);
 
+  const updateSaleEntry = useCallback(
+    async (
+      date: string,
+      entryId: string,
+      updates: {
+        paymentMethod?: 'pix' | 'cash' | 'card';
+        amount?: number;
+      }
+    ) => {
+      const day = salesRef.current.find((s) => s.date === date);
+      if (!day) return;
+
+      let entries = [...(day.entries || [])];
+      let entryIndex = entries.findIndex((e) => e.id === entryId);
+
+      if (entryIndex >= 0) {
+        entries[entryIndex] = {
+          ...entries[entryIndex],
+          paymentMethod: updates.paymentMethod || entries[entryIndex].paymentMethod,
+          amount: updates.amount !== undefined ? updates.amount : entries[entryIndex].amount,
+        };
+      } else if (day.totalSales > 0 && updates.paymentMethod) {
+        // Legacy fallback
+        const currentAmount = updates.amount !== undefined ? updates.amount : day.totalSales;
+        entries = [
+          {
+            id: entryId,
+            amount: currentAmount,
+            paymentMethod: updates.paymentMethod,
+            time: '12:00',
+            createdAt: new Date().toISOString(),
+          },
+        ];
+      }
+
+      const newTotalSales = entries.reduce((acc, e) => acc + (Number(e.amount) || 0), 0);
+      const newPix = entries.filter((e) => e.paymentMethod === 'pix').reduce((acc, e) => acc + (Number(e.amount) || 0), 0);
+      const newCard = entries.filter((e) => e.paymentMethod === 'card').reduce((acc, e) => acc + (Number(e.amount) || 0), 0);
+      const newCash = entries.filter((e) => e.paymentMethod === 'cash').reduce((acc, e) => acc + (Number(e.amount) || 0), 0);
+
+      const manualCost = Array.isArray(day.costEntries) && day.costEntries.length > 0
+        ? day.costEntries.reduce((acc, c) => acc + (Number(c.amount) || 0), 0)
+        : (Number(day.cost) || 0);
+
+      const profit = newTotalSales - manualCost;
+      const profitMargin = newTotalSales > 0 ? (profit / newTotalSales) * 100 : 0;
+      const dayId = day.id || `sale-${date}`;
+
+      const updatedDayRecord: DailySale = {
+        ...day,
+        id: dayId,
+        date,
+        totalSales: newTotalSales,
+        cost: manualCost,
+        profit,
+        profitMargin,
+        salesCount: entries.length,
+        averageTicket: entries.length > 0 ? newTotalSales / entries.length : 0,
+        paymentMethods: {
+          pix: newPix > 0 ? newPix : undefined,
+          credit: newCard > 0 ? newCard : undefined,
+          cash: newCash > 0 ? newCash : undefined,
+        },
+        entries,
+        updatedAt: new Date().toISOString(),
+      };
+
+      setSales((prev) => {
+        const idx = prev.findIndex((s) => s.date === date);
+        const next = idx >= 0 ? prev.map((s, i) => (i === idx ? updatedDayRecord : s)) : prev;
+        salesRef.current = next;
+        saveSalesToStorage(next);
+        return next;
+      });
+
+      if (user) {
+        try {
+          await saveSaleToCloud(user.uid, updatedDayRecord);
+          console.log('[Firestore] Forma de pagamento atualizada:', date, updates.paymentMethod);
+        } catch (err) {
+          console.error('[Firestore] Erro ao sincronizar atualização:', err);
+        }
+      }
+    },
+    [user]
+  );
+
   return {
     sales,
     currentMonthSales,
@@ -680,9 +917,11 @@ export function useSalesData() {
     cloudSynced,
     addOrUpdateSale,
     addCost,
+    convertSaleEntryToCost,
     deleteCostEntry,
     deleteSale,
     deleteSaleEntry,
+    updateSaleEntry,
     updateSettings,
     clearAllData,
     purgeMockData,

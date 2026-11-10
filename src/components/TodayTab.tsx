@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { DailySale, MonthSummary } from '../types/sales';
+import { DailySale, MonthSummary, TransactionItem } from '../types/sales';
 import {
   formatCurrency,
   formatPercent,
@@ -19,6 +19,7 @@ import {
   PlusCircle,
   ArrowUpRight,
   ArrowDownRight,
+  ArrowRightLeft,
   Wallet,
   Receipt,
   QrCode,
@@ -31,24 +32,23 @@ import {
   CloudCheck,
   CalendarDays,
   Gift,
+  X,
+  Check,
+  Tag,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
 interface TodayTabProps {
   todaySale?: DailySale;
   allSales: DailySale[];
-  allRecentTransactions: Array<{
-    id: string;
-    amount: number;
-    paymentMethod: 'pix' | 'cash' | 'card';
-    time: string;
-    date: string;
-    createdAt: string;
-  }>;
+  allRecentTransactions: TransactionItem[];
   monthSummary: MonthSummary;
   onOpenNewSale: (saleToEdit?: DailySale) => void;
+  onOpenNewCost?: () => void;
   onDeleteSale: (id: string) => void;
   onDeleteSaleEntry: (date: string, entryId: string) => void;
+  onDeleteCostEntry?: (date: string, costId: string) => void;
+  onUpdateSaleEntry?: (date: string, entryId: string, updates: { paymentMethod?: 'pix' | 'cash' | 'card'; amount?: number }) => Promise<void> | void;
   onNavigateToCredits?: () => void;
   activeCreditsCount?: number;
   totalActiveCreditsBalance?: number;
@@ -60,8 +60,11 @@ export const TodayTab: React.FC<TodayTabProps> = ({
   allRecentTransactions,
   monthSummary,
   onOpenNewSale,
+  onOpenNewCost,
   onDeleteSale,
   onDeleteSaleEntry,
+  onDeleteCostEntry,
+  onUpdateSaleEntry,
   onNavigateToCredits,
   activeCreditsCount = 0,
   totalActiveCreditsBalance = 0,
@@ -72,6 +75,12 @@ export const TodayTab: React.FC<TodayTabProps> = ({
   const [feedbackToast, setFeedbackToast] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<'individual' | 'daily'>('individual');
   const [periodOption, setPeriodOption] = useState<'today' | '7d' | '15d' | '30d'>('today');
+  const [txFilter, setTxFilter] = useState<'all' | 'sales' | 'costs'>('all');
+
+  // Edit Sale Entry payment method state
+  const [editingSaleEntry, setEditingSaleEntry] = useState<TransactionItem | null>(null);
+  const [editPaymentMethod, setEditPaymentMethod] = useState<'pix' | 'cash' | 'card'>('pix');
+  const [isSavingEdit, setIsSavingEdit] = useState(false);
 
   const handleDeleteEntryWithFeedback = (date: string, id: string) => {
     onDeleteSaleEntry(date, id);
@@ -79,10 +88,40 @@ export const TodayTab: React.FC<TodayTabProps> = ({
     setTimeout(() => setFeedbackToast(null), 2500);
   };
 
+  const handleDeleteCostWithFeedback = (date: string, id: string) => {
+    if (onDeleteCostEntry) {
+      onDeleteCostEntry(date, id);
+      setFeedbackToast('Custo excluído com sucesso');
+      setTimeout(() => setFeedbackToast(null), 2500);
+    }
+  };
+
   const handleDeleteSaleWithFeedback = (id: string) => {
     onDeleteSale(id);
     setFeedbackToast('Venda do dia excluída');
     setTimeout(() => setFeedbackToast(null), 2500);
+  };
+
+  const handleOpenEditSaleEntry = (tx: TransactionItem) => {
+    setEditingSaleEntry(tx);
+    setEditPaymentMethod(tx.paymentMethod || 'pix');
+  };
+
+  const handleSaveEditSaleEntry = async () => {
+    if (!editingSaleEntry || !onUpdateSaleEntry) return;
+    setIsSavingEdit(true);
+    try {
+      await onUpdateSaleEntry(editingSaleEntry.date, editingSaleEntry.id, {
+        paymentMethod: editPaymentMethod,
+      });
+      setFeedbackToast('Forma de pagamento atualizada com sucesso');
+      setTimeout(() => setFeedbackToast(null), 2500);
+      setEditingSaleEntry(null);
+    } catch (err) {
+      console.error('Erro ao editar forma de pagamento:', err);
+    } finally {
+      setIsSavingEdit(false);
+    }
   };
 
   const periodStats = useMemo(() => {
@@ -129,7 +168,7 @@ export const TodayTab: React.FC<TodayTabProps> = ({
     const dailyAverageRevenue = isToday ? totalRevenue : daysWithSales > 0 ? totalRevenue / daysWithSales : 0;
     const dailyAverageProfit = isToday ? totalProfit : daysWithSales > 0 ? totalProfit / daysWithSales : 0;
     const averageTicket = totalSalesCount > 0 ? totalRevenue / totalSalesCount : 0;
-    const profitMargin = totalRevenue > 0 ? (totalProfit / totalRevenue) * 100 : 100;
+    const profitMargin = totalRevenue > 0 ? (totalProfit / totalRevenue) * 100 : (totalCost > 0 ? 0 : 100);
 
     return {
       isToday,
@@ -315,6 +354,26 @@ export const TodayTab: React.FC<TodayTabProps> = ({
             </p>
           </div>
         </div>
+
+        {/* Quick actions row */}
+        <div className="mt-3 pt-2.5 border-t border-emerald-900/30 grid grid-cols-2 gap-2">
+          <button
+            type="button"
+            onClick={() => onOpenNewSale()}
+            className="flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-400 text-slate-950 font-black text-xs shadow-md shadow-emerald-500/20 active:scale-95 transition cursor-pointer"
+          >
+            <PlusCircle className="w-4 h-4 stroke-[2.5]" />
+            <span>+ Nova Venda</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => (onOpenNewCost ? onOpenNewCost() : onOpenNewSale())}
+            className="flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl bg-slate-900 border border-amber-500/50 hover:bg-amber-500/10 text-amber-300 font-black text-xs shadow-md shadow-amber-500/10 active:scale-95 transition cursor-pointer"
+          >
+            <Receipt className="w-4 h-4 stroke-[2.2] text-amber-400" />
+            <span>+ Lançar Custo</span>
+          </button>
+        </div>
       </div>
 
       {/* 2. TODAY'S STATUS CARD */}
@@ -328,7 +387,16 @@ export const TodayTab: React.FC<TodayTabProps> = ({
                 Resultado de Hoje
               </span>
             </div>
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => (onOpenNewCost ? onOpenNewCost() : onOpenNewSale())}
+                className="flex items-center gap-1 text-[11px] font-bold text-amber-300 hover:text-white bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 px-2.5 py-1 rounded-xl transition cursor-pointer"
+                title="Lançar custo ou despesa de hoje"
+              >
+                <Receipt className="w-3.5 h-3.5 text-amber-400" />
+                <span>+ Custo</span>
+              </button>
               <button
                 onClick={() => handleShareWhatsApp(todaySale)}
                 className="flex items-center gap-1 text-[11px] font-bold text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-750 px-2.5 py-1 rounded-xl transition cursor-pointer"
@@ -361,28 +429,62 @@ export const TodayTab: React.FC<TodayTabProps> = ({
             </div>
           </div>
 
-          {/* Stats Grid: Faturamento, Volume, Ticket Médio */}
-          <div className="mt-3.5 grid grid-cols-2 gap-2.5">
-            <div className="rounded-2xl bg-slate-800/70 p-3.5 border border-slate-750">
-              <div className="flex items-center gap-1.5 text-slate-400 text-xs font-semibold">
-                <DollarSign className="w-3.5 h-3.5 text-blue-400" />
-                <span>Total Vendido Hoje</span>
+          {/* Stats Grid: Faturamento, Custos (se houver), Volume */}
+          {todaySale.cost > 0 ? (
+            <div className="mt-3.5 grid grid-cols-3 gap-2 text-center">
+              <div className="rounded-2xl bg-slate-800/70 p-2.5 border border-slate-750">
+                <div className="flex items-center justify-center gap-1 text-slate-400 text-[10px] font-semibold">
+                  <DollarSign className="w-3 h-3 text-blue-400" />
+                  <span>Vendido</span>
+                </div>
+                <p className="mt-0.5 text-sm font-bold text-white font-mono">
+                  {formatCurrency(todaySale.totalSales)}
+                </p>
               </div>
-              <p className="mt-1 text-lg font-bold text-white font-mono">
-                {formatCurrency(todaySale.totalSales)}
-              </p>
-            </div>
 
-            <div className="rounded-2xl bg-slate-800/70 p-3.5 border border-slate-750">
-              <div className="flex items-center gap-1.5 text-slate-400 text-xs font-semibold">
-                <ShoppingBag className="w-3.5 h-3.5 text-purple-400" />
-                <span>Volume de Vendas</span>
+              <div className="rounded-2xl bg-amber-500/10 p-2.5 border border-amber-500/30">
+                <div className="flex items-center justify-center gap-1 text-amber-400 text-[10px] font-semibold">
+                  <Receipt className="w-3 h-3 text-amber-400" />
+                  <span>Custos</span>
+                </div>
+                <p className="mt-0.5 text-sm font-bold text-amber-300 font-mono">
+                  {formatCurrency(todaySale.cost)}
+                </p>
               </div>
-              <p className="mt-1 text-lg font-bold text-white font-mono">
-                {todaySale.salesCount} {todaySale.salesCount === 1 ? 'venda' : 'vendas'}
-              </p>
+
+              <div className="rounded-2xl bg-slate-800/70 p-2.5 border border-slate-750">
+                <div className="flex items-center justify-center gap-1 text-slate-400 text-[10px] font-semibold">
+                  <ShoppingBag className="w-3 h-3 text-purple-400" />
+                  <span>Volume</span>
+                </div>
+                <p className="mt-0.5 text-sm font-bold text-white font-mono">
+                  {todaySale.salesCount} {todaySale.salesCount === 1 ? 'venda' : 'vendas'}
+                </p>
+              </div>
             </div>
-          </div>
+          ) : (
+            <div className="mt-3.5 grid grid-cols-2 gap-2.5">
+              <div className="rounded-2xl bg-slate-800/70 p-3.5 border border-slate-750">
+                <div className="flex items-center gap-1.5 text-slate-400 text-xs font-semibold">
+                  <DollarSign className="w-3.5 h-3.5 text-blue-400" />
+                  <span>Total Vendido Hoje</span>
+                </div>
+                <p className="mt-1 text-lg font-bold text-white font-mono">
+                  {formatCurrency(todaySale.totalSales)}
+                </p>
+              </div>
+
+              <div className="rounded-2xl bg-slate-800/70 p-3.5 border border-slate-750">
+                <div className="flex items-center gap-1.5 text-slate-400 text-xs font-semibold">
+                  <ShoppingBag className="w-3.5 h-3.5 text-purple-400" />
+                  <span>Volume de Vendas</span>
+                </div>
+                <p className="mt-1 text-lg font-bold text-white font-mono">
+                  {todaySale.salesCount} {todaySale.salesCount === 1 ? 'venda' : 'vendas'}
+                </p>
+              </div>
+            </div>
+          )}
 
           {/* Today's Payment Methods Breakdown */}
           {(todaySale.paymentMethods?.pix ||
@@ -424,30 +526,39 @@ export const TodayTab: React.FC<TodayTabProps> = ({
           <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-emerald-500/20 text-emerald-400 mb-3 border border-emerald-500/30">
             <Clock className="w-7 h-7" />
           </div>
-          <h3 className="text-lg font-bold text-white">Nenhuma venda lançada hoje</h3>
+          <h3 className="text-lg font-bold text-white">Nenhum lançamento hoje</h3>
           <p className="text-xs text-slate-300 mt-1 max-w-xs mx-auto">
-            Toque no botão abaixo para lançar sua primeira venda e atualizar suas médias!
+            Lance suas vendas ou custos do dia para acompanhar seu lucro real em tempo real!
           </p>
 
-          <button
-            onClick={() => onOpenNewSale()}
-            className="mt-4 inline-flex items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-emerald-600 via-emerald-500 to-teal-400 py-3.5 px-6 text-sm font-extrabold text-slate-950 shadow-lg shadow-emerald-500/25 hover:from-emerald-500 hover:to-teal-300 active:scale-95 transition cursor-pointer"
-          >
-            <PlusCircle className="w-5 h-5 stroke-[2.5]" />
-            Lançar Venda Agora
-          </button>
+          <div className="mt-4 flex flex-col sm:flex-row items-center justify-center gap-2">
+            <button
+              onClick={() => onOpenNewSale()}
+              className="w-full sm:w-auto inline-flex items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-emerald-600 via-emerald-500 to-teal-400 py-3.5 px-6 text-sm font-extrabold text-slate-950 shadow-lg shadow-emerald-500/25 hover:from-emerald-500 hover:to-teal-300 active:scale-95 transition cursor-pointer"
+            >
+              <PlusCircle className="w-5 h-5 stroke-[2.5]" />
+              Lançar Venda
+            </button>
+            <button
+              onClick={() => (onOpenNewCost ? onOpenNewCost() : onOpenNewSale())}
+              className="w-full sm:w-auto inline-flex items-center justify-center gap-2 rounded-2xl bg-slate-800 border border-amber-500/40 hover:bg-slate-750 py-3.5 px-6 text-sm font-extrabold text-amber-300 active:scale-95 transition cursor-pointer"
+            >
+              <Receipt className="w-5 h-5 stroke-[2.2] text-amber-400" />
+              Lançar Custo
+            </button>
+          </div>
         </div>
       )}
 
       {/* 3. ÚLTIMOS LANÇAMENTOS (ATUALIZAÇÃO AUTOMÁTICA EM TEMPO REAL) */}
       <div>
-        <div className="flex items-center justify-between mb-3 px-1">
+        <div className="flex items-center justify-between mb-2.5 px-1">
           <div>
             <h3 className="text-xs font-extrabold uppercase tracking-wider text-white flex items-center gap-1.5">
               <Zap className="w-4 h-4 text-emerald-400 fill-emerald-400" />
               Últimos Lançamentos
             </h3>
-            <p className="text-[10px] text-slate-400">Atualiza automaticamente a cada venda</p>
+            <p className="text-[10px] text-slate-400">Vendas e custos atualizados automaticamente</p>
           </div>
 
           {/* Toggle between Individual Transactions vs Day Groups */}
@@ -460,7 +571,7 @@ export const TodayTab: React.FC<TodayTabProps> = ({
                   : 'text-slate-400 hover:text-white'
               }`}
             >
-              Vendas
+              Lançamentos
             </button>
             <button
               onClick={() => setViewMode('daily')}
@@ -475,76 +586,171 @@ export const TodayTab: React.FC<TodayTabProps> = ({
           </div>
         </div>
 
-        {/* View Mode A: Individual Sales Transactions List */}
+        {/* Filter chips: Todos, Vendas, Custos */}
+        {viewMode === 'individual' && (
+          <div className="flex items-center gap-1.5 mb-2.5 px-1">
+            <button
+              type="button"
+              onClick={() => setTxFilter('all')}
+              className={`px-2.5 py-1 text-[11px] font-bold rounded-lg transition cursor-pointer border ${
+                txFilter === 'all'
+                  ? 'bg-slate-800 text-white border-slate-700'
+                  : 'bg-slate-950 text-slate-400 border-slate-850 hover:text-slate-300'
+              }`}
+            >
+              Todos ({allRecentTransactions.length})
+            </button>
+            <button
+              type="button"
+              onClick={() => setTxFilter('sales')}
+              className={`px-2.5 py-1 text-[11px] font-bold rounded-lg transition cursor-pointer border flex items-center gap-1 ${
+                txFilter === 'sales'
+                  ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/50'
+                  : 'bg-slate-950 text-slate-400 border-slate-850 hover:text-slate-300'
+              }`}
+            >
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+              Vendas ({allRecentTransactions.filter((t) => t.type === 'sale').length})
+            </button>
+            <button
+              type="button"
+              onClick={() => setTxFilter('costs')}
+              className={`px-2.5 py-1 text-[11px] font-bold rounded-lg transition cursor-pointer border flex items-center gap-1 ${
+                txFilter === 'costs'
+                  ? 'bg-amber-500/20 text-amber-300 border-amber-500/50'
+                  : 'bg-slate-950 text-slate-400 border-slate-850 hover:text-slate-300'
+              }`}
+            >
+              <span className="w-1.5 h-1.5 rounded-full bg-amber-400"></span>
+              Custos ({allRecentTransactions.filter((t) => t.type === 'cost').length})
+            </button>
+          </div>
+        )}
+
+        {/* View Mode A: Individual Transactions List (Sales + Costs) */}
         {viewMode === 'individual' && (
           <div className="space-y-2">
             {allRecentTransactions.length === 0 ? (
               <div className="rounded-2xl bg-slate-900/60 border border-slate-800 p-6 text-center text-slate-400 text-xs">
-                Nenhuma venda registrada ainda.
+                Nenhum lançamento registrado ainda.
               </div>
             ) : (
-              allRecentTransactions.slice(0, 15).map((tx) => {
-                const isToday = tx.date === todayStr;
-                return (
-                  <div
-                    key={tx.id}
-                    className="rounded-2xl p-3 bg-slate-900 border border-slate-800 hover:border-slate-700 flex items-center justify-between transition animate-in fade-in"
-                  >
-                    <div className="flex items-center gap-3">
-                      {/* Method Icon Badge */}
-                      <div
-                        className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${
-                          tx.paymentMethod === 'pix'
-                            ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
-                            : tx.paymentMethod === 'card'
-                            ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30'
-                            : 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
-                        }`}
-                      >
-                        {tx.paymentMethod === 'pix' && <QrCode className="w-5 h-5 stroke-[2.2]" />}
-                        {tx.paymentMethod === 'card' && <CreditCard className="w-5 h-5 stroke-[2.2]" />}
-                        {tx.paymentMethod === 'cash' && <Banknote className="w-5 h-5 stroke-[2.2]" />}
+              allRecentTransactions
+                .filter((tx) => {
+                  if (txFilter === 'sales') return tx.type === 'sale';
+                  if (txFilter === 'costs') return tx.type === 'cost';
+                  return true;
+                })
+                .slice(0, 20)
+                .map((tx) => {
+                  const isToday = tx.date === todayStr;
+                  const isCost = tx.type === 'cost';
+
+                  return (
+                    <div
+                      key={tx.id}
+                      className={`rounded-2xl p-3 border transition animate-in fade-in flex items-center justify-between ${
+                        isCost
+                          ? 'bg-slate-900 border-amber-500/30 hover:border-amber-500/50'
+                          : 'bg-slate-900 border-slate-800 hover:border-slate-700'
+                      }`}
+                    >
+                      <div className="flex items-center gap-3">
+                        {/* Method / Cost Icon Badge */}
+                        <div
+                          className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${
+                            isCost
+                              ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
+                              : tx.paymentMethod === 'pix'
+                              ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                              : tx.paymentMethod === 'card'
+                              ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30'
+                              : 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
+                          }`}
+                        >
+                          {isCost && <Receipt className="w-5 h-5 stroke-[2.2]" />}
+                          {!isCost && tx.paymentMethod === 'pix' && <QrCode className="w-5 h-5 stroke-[2.2]" />}
+                          {!isCost && tx.paymentMethod === 'card' && <CreditCard className="w-5 h-5 stroke-[2.2]" />}
+                          {!isCost && tx.paymentMethod === 'cash' && <Banknote className="w-5 h-5 stroke-[2.2]" />}
+                        </div>
+
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span
+                              className={`text-sm font-extrabold font-mono ${
+                                isCost ? 'text-amber-400' : 'text-white'
+                              }`}
+                            >
+                              {isCost ? `- ${formatCurrency(tx.amount)}` : formatCurrency(tx.amount)}
+                            </span>
+                            <span
+                              className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-md ${
+                                isCost
+                                  ? 'bg-amber-950 text-amber-300 border border-amber-800/60'
+                                  : tx.paymentMethod === 'pix'
+                                  ? 'bg-emerald-950 text-emerald-300 border border-emerald-800/60'
+                                  : tx.paymentMethod === 'card'
+                                  ? 'bg-blue-950 text-blue-300 border border-blue-800/60'
+                                  : 'bg-amber-950 text-amber-300 border border-amber-800/60'
+                              }`}
+                            >
+                              {isCost
+                                ? tx.category || 'Custo'
+                                : tx.paymentMethod === 'pix'
+                                ? 'Pix'
+                                : tx.paymentMethod === 'card'
+                                ? 'Cartão'
+                                : 'Dinheiro'}
+                            </span>
+                          </div>
+                          <p className="text-[11px] text-slate-400 mt-0.5">
+                            {isToday ? 'Hoje' : formatDateBR(tx.date)} {tx.time ? `às ${tx.time}` : ''}
+                            {isCost && tx.description && tx.description !== tx.category && (
+                              <span className="text-slate-300 ml-1">• {tx.description}</span>
+                            )}
+                          </p>
+                        </div>
                       </div>
 
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-sm font-extrabold text-white font-mono">
-                            {formatCurrency(tx.amount)}
-                          </span>
-                          <span
-                            className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-md ${
-                              tx.paymentMethod === 'pix'
-                                ? 'bg-emerald-950 text-emerald-300 border border-emerald-800/60'
-                                : tx.paymentMethod === 'card'
-                                ? 'bg-blue-950 text-blue-300 border border-blue-800/60'
-                                : 'bg-amber-950 text-amber-300 border border-amber-800/60'
-                            }`}
+                      {/* Actions: Edit (only for sales) or Delete */}
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        {/* Only on SALES, provide button to edit payment method if shopkeeper made a mistake */}
+                        {!isCost && onUpdateSaleEntry && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleOpenEditSaleEntry(tx);
+                            }}
+                            className="flex items-center gap-1 text-[11px] font-bold text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-750 border border-slate-700 px-2.5 py-1 rounded-xl transition cursor-pointer active:scale-95"
+                            title="Editar forma de pagamento (Pix, Cartão ou Dinheiro)"
                           >
-                            {tx.paymentMethod === 'pix' ? 'Pix' : tx.paymentMethod === 'card' ? 'Cartão' : 'Dinheiro'}
-                          </span>
-                        </div>
-                        <p className="text-[11px] text-slate-400 mt-0.5">
-                          {isToday ? 'Hoje' : formatDateBR(tx.date)} {tx.time ? `às ${tx.time}` : ''}
-                        </p>
+                            <Edit2 className="w-3.5 h-3.5 text-emerald-400" />
+                            <span>Editar</span>
+                          </button>
+                        )}
+
+                        {/* Delete button */}
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (isCost) {
+                              handleDeleteCostWithFeedback(tx.date, tx.id);
+                            } else {
+                              handleDeleteEntryWithFeedback(tx.date, tx.id);
+                            }
+                          }}
+                          className="p-2 text-slate-400 hover:text-rose-400 active:text-rose-500 hover:bg-rose-950/40 rounded-xl transition cursor-pointer active:scale-95 touch-manipulation"
+                          title={isCost ? 'Excluir este custo' : 'Excluir este lançamento'}
+                          aria-label={isCost ? 'Excluir este custo' : 'Excluir este lançamento'}
+                        >
+                          <Trash2 className="w-4 h-4 text-slate-400 hover:text-rose-400 transition" />
+                        </button>
                       </div>
                     </div>
-
-                    {/* Delete single transaction */}
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleDeleteEntryWithFeedback(tx.date, tx.id);
-                      }}
-                      className="p-2.5 text-slate-400 hover:text-rose-400 active:text-rose-500 hover:bg-rose-950/40 rounded-xl transition cursor-pointer active:scale-95 touch-manipulation"
-                      title="Excluir este lançamento"
-                      aria-label="Excluir este lançamento"
-                    >
-                      <Trash2 className="w-4 h-4 text-slate-400 hover:text-rose-400 transition" />
-                    </button>
-                  </div>
-                );
-              })
+                  );
+                })
             )}
           </div>
         )}
@@ -554,11 +760,15 @@ export const TodayTab: React.FC<TodayTabProps> = ({
           <div className="space-y-2">
             {allSales.slice(0, 10).map((sale) => {
               const isToday = sale.date === todayStr;
+              const isOnlyCost = (sale.totalSales === 0 || !sale.totalSales) && (sale.cost > 0 || (sale.costEntries && sale.costEntries.length > 0));
+
               return (
                 <div
                   key={sale.id}
                   className={`rounded-2xl p-3.5 border transition ${
-                    isToday
+                    isOnlyCost
+                      ? 'bg-slate-900/90 border-amber-500/40 shadow-sm'
+                      : isToday
                       ? 'bg-slate-900 border-emerald-500/40 shadow-sm'
                       : 'bg-slate-900/80 border-slate-800 hover:border-slate-700'
                   }`}
@@ -574,19 +784,39 @@ export const TodayTab: React.FC<TodayTabProps> = ({
                             Hoje
                           </span>
                         )}
+                        {isOnlyCost && (
+                          <span className="text-[10px] font-bold text-amber-300 bg-amber-950/80 border border-amber-800/60 px-2 py-0.5 rounded-full">
+                            Custo
+                          </span>
+                        )}
                       </div>
                       <p className="text-[11px] text-slate-400 mt-0.5">
-                        {sale.salesCount} {sale.salesCount === 1 ? 'venda' : 'vendas'}
+                        {isOnlyCost
+                          ? `Sem vendas • Custo: ${formatCurrency(sale.cost)}`
+                          : `${sale.salesCount} ${sale.salesCount === 1 ? 'venda' : 'vendas'}`}
                       </p>
                     </div>
 
                     <div className="text-right">
-                      <p className="text-sm font-bold text-white font-mono">
-                        {formatCurrency(sale.totalSales)}
-                      </p>
-                      <span className="text-[11px] text-emerald-400 font-bold font-mono">
-                        Lucro: {formatCurrency(sale.profit)}
-                      </span>
+                      {isOnlyCost ? (
+                        <>
+                          <p className="text-sm font-bold text-amber-400 font-mono">
+                            - {formatCurrency(sale.cost)}
+                          </p>
+                          <span className="text-[11px] text-amber-300 font-bold font-mono">
+                            Saída do Negócio
+                          </span>
+                        </>
+                      ) : (
+                        <>
+                          <p className="text-sm font-bold text-white font-mono">
+                            {formatCurrency(sale.totalSales)}
+                          </p>
+                          <span className="text-[11px] text-emerald-400 font-bold font-mono">
+                            Lucro: {formatCurrency(sale.profit)}
+                          </span>
+                        </>
+                      )}
                     </div>
                   </div>
 
@@ -644,6 +874,112 @@ export const TodayTab: React.FC<TodayTabProps> = ({
           </div>
         )}
       </div>
+
+      {/* Modal: Editar Forma de Pagamento da Venda (Pix, Cartão, Dinheiro) */}
+      {editingSaleEntry && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in"
+          onClick={() => setEditingSaleEntry(null)}
+        >
+          <div
+            className="w-full max-w-sm rounded-3xl bg-slate-900 border border-slate-800 p-5 shadow-2xl space-y-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+              <div className="flex items-center gap-2.5">
+                <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                  <Edit2 className="w-4 h-4" />
+                </div>
+                <div>
+                  <h4 className="text-sm font-extrabold text-white">Editar Forma de Pagamento</h4>
+                  <p className="text-[11px] text-slate-400">Corrija se foi Pix, Cartão ou Dinheiro</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEditingSaleEntry(null)}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition cursor-pointer"
+                aria-label="Fechar"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="rounded-2xl bg-slate-950 p-3.5 border border-slate-800 text-center">
+              <span className="text-[10px] uppercase font-bold text-slate-400">Valor da Venda:</span>
+              <p className="text-3xl font-black text-white font-mono mt-0.5">
+                {formatCurrency(editingSaleEntry.amount)}
+              </p>
+              <p className="text-[11px] text-slate-400 mt-1">
+                {editingSaleEntry.date === todayStr ? 'Hoje' : formatDateBR(editingSaleEntry.date)} às {editingSaleEntry.time}
+              </p>
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-300 mb-2">
+                Selecione a forma de pagamento correta:
+              </label>
+              <div className="grid grid-cols-3 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setEditPaymentMethod('pix')}
+                  className={`flex flex-col items-center justify-center p-3 rounded-2xl border-2 transition cursor-pointer ${
+                    editPaymentMethod === 'pix'
+                      ? 'bg-emerald-500/20 border-emerald-500 text-white shadow-md'
+                      : 'bg-slate-850 border-slate-800 text-slate-400 hover:text-white'
+                  }`}
+                >
+                  <QrCode className="w-5 h-5 mb-1 text-emerald-400" />
+                  <span className="text-xs font-extrabold">Pix</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setEditPaymentMethod('cash')}
+                  className={`flex flex-col items-center justify-center p-3 rounded-2xl border-2 transition cursor-pointer ${
+                    editPaymentMethod === 'cash'
+                      ? 'bg-amber-500/20 border-amber-500 text-white shadow-md'
+                      : 'bg-slate-850 border-slate-800 text-slate-400 hover:text-white'
+                  }`}
+                >
+                  <Banknote className="w-5 h-5 mb-1 text-amber-400" />
+                  <span className="text-xs font-extrabold">Dinheiro</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setEditPaymentMethod('card')}
+                  className={`flex flex-col items-center justify-center p-3 rounded-2xl border-2 transition cursor-pointer ${
+                    editPaymentMethod === 'card'
+                      ? 'bg-blue-500/20 border-blue-500 text-white shadow-md'
+                      : 'bg-slate-850 border-slate-800 text-slate-400 hover:text-white'
+                  }`}
+                >
+                  <CreditCard className="w-5 h-5 mb-1 text-blue-400" />
+                  <span className="text-xs font-extrabold">Cartão</span>
+                </button>
+              </div>
+            </div>
+
+            <div className="flex gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setEditingSaleEntry(null)}
+                className="flex-1 py-2.5 rounded-xl bg-slate-800 text-slate-300 text-xs font-bold hover:bg-slate-750 transition cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveEditSaleEntry}
+                disabled={isSavingEdit}
+                className="flex-2 flex items-center justify-center gap-1.5 py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-400 text-slate-950 text-xs font-black shadow-lg shadow-emerald-500/20 active:scale-95 transition cursor-pointer disabled:opacity-50"
+              >
+                <Check className="w-4 h-4 stroke-[2.5]" />
+                <span>{isSavingEdit ? 'Salvando...' : 'Salvar Alteração'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Floating feedback toast */}
       {feedbackToast && (

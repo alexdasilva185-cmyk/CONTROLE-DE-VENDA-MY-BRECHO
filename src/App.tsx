@@ -30,8 +30,11 @@ export default function App() {
     isLoaded,
     addOrUpdateSale,
     addCost,
+    convertSaleEntryToCost,
+    deleteCostEntry,
     deleteSale,
     deleteSaleEntry,
+    updateSaleEntry,
     updateSettings,
     clearAllData,
     purgeMockData,
@@ -51,6 +54,7 @@ export default function App() {
   const { isUnauthorizedDomain, clearAuthError } = useAuth();
   const [currentTab, setCurrentTab] = useState<NavTab>('today');
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [saleModalType, setSaleModalType] = useState<'sale' | 'cost'>('sale');
   const [saleToEdit, setSaleToEdit] = useState<DailySale | null>(null);
   const [isCalculatorOpen, setIsCalculatorOpen] = useState(false);
 
@@ -75,6 +79,13 @@ export default function App() {
 
   const handleOpenNewSale = (sale?: DailySale) => {
     setSaleToEdit(sale || null);
+    setSaleModalType('sale');
+    setIsModalOpen(true);
+  };
+
+  const handleOpenNewCost = () => {
+    setSaleToEdit(null);
+    setSaleModalType('cost');
     setIsModalOpen(true);
   };
 
@@ -117,8 +128,11 @@ export default function App() {
               allRecentTransactions={allRecentTransactions}
               monthSummary={monthSummary}
               onOpenNewSale={handleOpenNewSale}
+              onOpenNewCost={handleOpenNewCost}
               onDeleteSale={deleteSale}
               onDeleteSaleEntry={deleteSaleEntry}
+              onDeleteCostEntry={deleteCostEntry}
+              onUpdateSaleEntry={updateSaleEntry}
               onNavigateToCredits={() => setCurrentTab('credits')}
               activeCreditsCount={activeCreditsCount}
               totalActiveCreditsBalance={totalActiveBalance}
@@ -174,15 +188,18 @@ export default function App() {
           activeCreditsCount={activeCreditsCount}
         />
 
-        {/* Modal for adding/editing sales results */}
+        {/* Modal for adding/editing sales results or costs */}
         <SaleFormModal
           isOpen={isModalOpen}
           onClose={() => {
             setIsModalOpen(false);
             setSaleToEdit(null);
+            setSaleModalType('sale');
           }}
           onSave={addOrUpdateSale}
+          onSaveCost={addCost}
           initialSale={saleToEdit}
+          initialType={saleModalType}
           settings={settings}
           existingSales={sales}
         />

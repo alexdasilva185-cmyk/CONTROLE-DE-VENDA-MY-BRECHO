@@ -35,11 +35,15 @@ export function calculateMonthSummary(
           ? 0 // If sales entries exist but no cost entries, cost is 0 (100% limpo)
           : (Number(sale.cost) || 0));
 
+    const actualSalesCount = sale.totalSales > 0
+      ? (Array.isArray(sale.entries) && sale.entries.length > 0 ? sale.entries.length : Math.max(1, sale.salesCount || 1))
+      : 0;
+
     const actualProfit = (Number(sale.totalSales) || 0) - actualCost;
 
     totalCost += actualCost;
     totalProfit += actualProfit;
-    totalSalesCount += sale.salesCount;
+    totalSalesCount += actualSalesCount;
     if (sale.totalSales > 0) {
       daysWithSalesSet.add(sale.date);
     }
@@ -49,13 +53,15 @@ export function calculateMonthSummary(
         date: sale.date,
         revenue: sale.totalSales,
         profit: actualProfit,
-        salesCount: sale.salesCount,
+        salesCount: actualSalesCount,
       };
     }
   }
 
   const daysWithSales = daysWithSalesSet.size;
-  const averageProfitMargin = totalRevenue > 0 ? (totalProfit / totalRevenue) * 100 : 100;
+  const averageProfitMargin = totalRevenue > 0
+    ? (totalProfit / totalRevenue) * 100
+    : (totalCost > 0 ? 0 : 100);
 
   // 1. Média por dia em que houve vendas registradas (dias ativos)
   const dailyAverageRevenue = daysWithSales > 0 ? totalRevenue / daysWithSales : 0;
