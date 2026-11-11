@@ -144,13 +144,13 @@ export const TodayTab: React.FC<TodayTabProps> = ({
     const endDay = String(now.getDate()).padStart(2, '0');
     const endStr = `${endYear}-${endMonth}-${endDay}`;
 
-    // Filter sales in this window
-    const periodSales = allSales.filter(
-      (s) => s.date >= startStr && s.date <= endStr && s.totalSales > 0
+    // Filter sales and costs in this window
+    const periodDays = allSales.filter(
+      (s) => s.date >= startStr && s.date <= endStr
     );
 
-    const totalRevenue = periodSales.reduce((acc, s) => acc + s.totalSales, 0);
-    const totalCost = periodSales.reduce(
+    const totalRevenue = periodDays.reduce((acc, s) => acc + (Number(s.totalSales) || 0), 0);
+    const totalCost = periodDays.reduce(
       (acc, s) =>
         acc +
         (Array.isArray(s.costEntries) && s.costEntries.length > 0
@@ -161,12 +161,34 @@ export const TodayTab: React.FC<TodayTabProps> = ({
       0
     );
     const totalProfit = totalRevenue - totalCost;
-    const totalSalesCount = periodSales.reduce((acc, s) => acc + (s.salesCount || 1), 0);
-    const daysWithSales = periodSales.length;
+    const totalSalesCount = periodDays.reduce((acc, s) => {
+      if ((Number(s.totalSales) || 0) <= 0) return acc;
+      return acc + (Array.isArray(s.entries) && s.entries.length > 0 ? s.entries.length : Math.max(1, s.salesCount || 1));
+    }, 0);
+    const daysWithSales = periodDays.filter((s) => (Number(s.totalSales) || 0) > 0).length;
 
-    // Daily average based on days that had sales
-    const dailyAverageRevenue = isToday ? totalRevenue : daysWithSales > 0 ? totalRevenue / daysWithSales : 0;
-    const dailyAverageProfit = isToday ? totalProfit : daysWithSales > 0 ? totalProfit / daysWithSales : 0;
+    // Payment methods breakdown in this period
+    const pixTotal = periodDays.reduce((acc, s) => {
+      if (Array.isArray(s.entries) && s.entries.length > 0) {
+        return acc + s.entries.filter((e) => e.paymentMethod === 'pix').reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
+      }
+      return acc + (Number(s.paymentMethods?.pix) || 0);
+    }, 0);
+
+    const cardTotal = periodDays.reduce((acc, s) => {
+      if (Array.isArray(s.entries) && s.entries.length > 0) {
+        return acc + s.entries.filter((e) => e.paymentMethod === 'card').reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
+      }
+      return acc + (Number(s.paymentMethods?.credit) || 0) + (Number(s.paymentMethods?.debit) || 0);
+    }, 0);
+
+    const cashTotal = periodDays.reduce((acc, s) => {
+      if (Array.isArray(s.entries) && s.entries.length > 0) {
+        return acc + s.entries.filter((e) => e.paymentMethod === 'cash').reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
+      }
+      return acc + (Number(s.paymentMethods?.cash) || 0);
+    }, 0);
+
     const averageTicket = totalSalesCount > 0 ? totalRevenue / totalSalesCount : 0;
     const profitMargin = totalRevenue > 0 ? (totalProfit / totalRevenue) * 100 : (totalCost > 0 ? 0 : 100);
 
@@ -181,10 +203,11 @@ export const TodayTab: React.FC<TodayTabProps> = ({
       totalProfit,
       totalSalesCount,
       daysWithSales,
-      dailyAverageRevenue,
-      dailyAverageProfit,
       averageTicket,
       profitMargin,
+      pixTotal,
+      cardTotal,
+      cashTotal,
     };
   }, [allSales, periodOption]);
 
@@ -197,10 +220,6 @@ export const TodayTab: React.FC<TodayTabProps> = ({
     setCopiedWhatsApp(true);
     setTimeout(() => setCopiedWhatsApp(false), 2500);
   };
-
-  // Compare today with month's daily average
-  const revenueDiff = todaySale ? todaySale.totalSales - monthSummary.dailyAverageRevenue : 0;
-  const isAboveAverage = revenueDiff >= 0;
 
   return (
     <div className="space-y-4 pb-20">
@@ -255,14 +274,16 @@ export const TodayTab: React.FC<TodayTabProps> = ({
         </div>
       )}
 
-      {/* 1. LIVE SALES & AVERAGE HERO CARD with Hoje, 7, 15, and 30 Days Options */}
+      {/* 1. LIVE SALES HERO CARD with Hoje, 7, 15, and 30 Days Options */}
       <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-emerald-950 via-slate-900 to-slate-950 border-2 border-emerald-500/50 p-4 shadow-xl">
         {/* Top Header */}
         <div className="flex items-center justify-between mb-2.5">
           <div className="flex items-center gap-1.5">
             <span className="flex h-2 w-2 rounded-full bg-emerald-400 animate-ping"></span>
             <span className="text-[10px] font-black uppercase tracking-widest text-emerald-300">
-              {periodStats.isToday ? 'Resultado de Hoje (Tempo Real)' : 'Média de Vendas (Tempo Real)'}
+              {periodStats.isToday
+                ? 'Resultado de Hoje (Tempo Real)'
+                : `Resultado em ${periodStats.label} (Tempo Real)`}
             </span>
           </div>
           <span className="text-[10px] font-bold text-slate-300 font-mono bg-slate-900/90 px-2 py-0.5 rounded-lg border border-slate-800">
@@ -320,40 +341,66 @@ export const TodayTab: React.FC<TodayTabProps> = ({
           </button>
         </div>
 
-        {/* Main Big Value */}
+        {/* Main Big Value: ALWAYS THE REAL TOTAL SALES AMOUNT */}
         <div className="flex items-baseline gap-2">
           <span className="text-3xl sm:text-4xl font-black text-white font-mono tracking-tight">
-            {formatCurrency(periodStats.isToday ? periodStats.totalRevenue : periodStats.dailyAverageRevenue)}
+            {formatCurrency(periodStats.totalRevenue)}
           </span>
-          {!periodStats.isToday && (
-            <span className="text-xs font-bold text-emerald-400">/ dia</span>
-          )}
         </div>
         <p className="text-[11px] text-slate-400 mt-0.5 font-medium">
           {periodStats.isToday
             ? 'Total faturado no dia de hoje'
-            : `Média por dia trabalhado nos últimos ${periodStats.label}`}
+            : `Total faturado nos últimos ${periodStats.label}`}
         </p>
 
         {/* Live stats summary row */}
-        <div className="mt-3 pt-2.5 border-t border-emerald-900/40 grid grid-cols-2 gap-2 text-xs">
-          <div className="bg-slate-900/80 rounded-xl p-2.5 border border-emerald-950">
-            <span className="text-[10px] uppercase font-bold text-slate-400 block">
-              {periodStats.isToday ? 'Vendido Hoje' : `Faturamento (${periodStats.label})`}
-            </span>
-            <p className="text-xs font-extrabold text-white font-mono mt-0.5">
-              {formatCurrency(periodStats.totalRevenue)}
-            </p>
+        {periodStats.totalCost > 0 ? (
+          <div className="mt-3 pt-2.5 border-t border-emerald-900/40 grid grid-cols-3 gap-2 text-xs text-center">
+            <div className="bg-slate-900/80 rounded-xl p-2.5 border border-emerald-950">
+              <span className="text-[10px] uppercase font-bold text-slate-400 block truncate">
+                {periodStats.isToday ? 'Vendido Hoje' : `Vendido (${periodStats.label})`}
+              </span>
+              <p className="text-xs sm:text-sm font-extrabold text-white font-mono mt-0.5">
+                {formatCurrency(periodStats.totalRevenue)}
+              </p>
+            </div>
+            <div className="bg-slate-900/80 rounded-xl p-2.5 border border-amber-950/60">
+              <span className="text-[10px] uppercase font-bold text-amber-400/90 block truncate">
+                {periodStats.isToday ? 'Custos Hoje' : `Custos (${periodStats.label})`}
+              </span>
+              <p className="text-xs sm:text-sm font-extrabold text-amber-400 font-mono mt-0.5">
+                - {formatCurrency(periodStats.totalCost)}
+              </p>
+            </div>
+            <div className="bg-slate-900/80 rounded-xl p-2.5 border border-emerald-950">
+              <span className="text-[10px] uppercase font-bold text-emerald-300 block truncate">
+                Lucro Líquido
+              </span>
+              <p className="text-xs sm:text-sm font-extrabold text-emerald-400 font-mono mt-0.5">
+                {formatCurrency(periodStats.totalProfit)}
+              </p>
+            </div>
           </div>
-          <div className="bg-slate-900/80 rounded-xl p-2.5 border border-emerald-950">
-            <span className="text-[10px] uppercase font-bold text-slate-400 block">
-              {periodStats.isToday ? 'Lucro Líquido Hoje' : 'Lucro Médio por Dia'}
-            </span>
-            <p className="text-xs font-extrabold text-emerald-400 font-mono mt-0.5">
-              {formatCurrency(periodStats.isToday ? periodStats.totalProfit : periodStats.dailyAverageProfit)}
-            </p>
+        ) : (
+          <div className="mt-3 pt-2.5 border-t border-emerald-900/40 grid grid-cols-2 gap-2 text-xs">
+            <div className="bg-slate-900/80 rounded-xl p-2.5 border border-emerald-950">
+              <span className="text-[10px] uppercase font-bold text-slate-400 block">
+                {periodStats.isToday ? 'Vendido Hoje' : `Vendido (${periodStats.label})`}
+              </span>
+              <p className="text-xs sm:text-sm font-extrabold text-white font-mono mt-0.5">
+                {formatCurrency(periodStats.totalRevenue)}
+              </p>
+            </div>
+            <div className="bg-slate-900/80 rounded-xl p-2.5 border border-emerald-950">
+              <span className="text-[10px] uppercase font-bold text-slate-400 block">
+                {periodStats.isToday ? 'Lucro Líquido Hoje' : `Lucro Líquido (${periodStats.label})`}
+              </span>
+              <p className="text-xs sm:text-sm font-extrabold text-emerald-400 font-mono mt-0.5">
+                {formatCurrency(periodStats.totalProfit)}
+              </p>
+            </div>
           </div>
-        </div>
+        )}
 
         {/* Quick actions row */}
         <div className="mt-3 pt-2.5 border-t border-emerald-900/30 grid grid-cols-2 gap-2">
@@ -376,177 +423,273 @@ export const TodayTab: React.FC<TodayTabProps> = ({
         </div>
       </div>
 
-      {/* 2. TODAY'S STATUS CARD */}
-      {todaySale ? (
+      {/* 2. DETAILED STATUS CARD (ADAPTS TO SELECTED PERIOD: HOJE vs 7D vs 15D vs 30D) */}
+      {periodStats.isToday ? (
+        todaySale ? (
+          <div className="relative overflow-hidden rounded-3xl bg-slate-900 border border-slate-800 p-5 shadow-2xl">
+            {/* Top Status Badge */}
+            <div className="flex items-center justify-between pb-3 border-b border-slate-800/80">
+              <div className="flex items-center gap-2">
+                <span className="flex h-2.5 w-2.5 rounded-full bg-emerald-400"></span>
+                <span className="text-xs font-bold uppercase tracking-wider text-emerald-400">
+                  Resultado de Hoje
+                </span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => (onOpenNewCost ? onOpenNewCost() : onOpenNewSale())}
+                  className="flex items-center gap-1 text-[11px] font-bold text-amber-300 hover:text-white bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 px-2.5 py-1 rounded-xl transition cursor-pointer"
+                  title="Lançar custo ou despesa de hoje"
+                >
+                  <Receipt className="w-3.5 h-3.5 text-amber-400" />
+                  <span>+ Custo</span>
+                </button>
+                <button
+                  onClick={() => handleShareWhatsApp(todaySale)}
+                  className="flex items-center gap-1 text-[11px] font-bold text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-750 px-2.5 py-1 rounded-xl transition cursor-pointer"
+                  title="Compartilhar no WhatsApp"
+                >
+                  <Share2 className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>{copiedWhatsApp ? 'Enviado!' : 'WhatsApp'}</span>
+                </button>
+                <button
+                  onClick={() => onOpenNewSale(todaySale)}
+                  className="p-1.5 rounded-xl bg-slate-800 hover:bg-slate-750 text-slate-300 hover:text-white transition cursor-pointer"
+                  title="Editar lançamento de hoje"
+                >
+                  <Edit2 className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </div>
+
+            {/* Main Profit Card */}
+            <div className="mt-4 text-center rounded-2xl bg-gradient-to-tr from-emerald-950/60 via-slate-900 to-emerald-950/40 border border-emerald-500/30 p-4 shadow-inner">
+              <p className="text-[11px] font-bold uppercase tracking-widest text-emerald-300">
+                Seu Lucro Líquido Hoje
+              </p>
+              <p className="mt-1 text-3xl sm:text-4xl font-black text-emerald-400 font-mono tracking-tight">
+                {formatCurrency(todaySale.profit)}
+              </p>
+              <div className="mt-1.5 inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 text-xs font-bold border border-emerald-500/30">
+                <span>Margem de Lucro:</span>
+                <span className="font-mono">{formatPercent(todaySale.profitMargin)}</span>
+              </div>
+            </div>
+
+            {/* Stats Grid: Faturamento, Custos (se houver), Volume */}
+            {todaySale.cost > 0 ? (
+              <div className="mt-3.5 grid grid-cols-3 gap-2 text-center">
+                <div className="rounded-2xl bg-slate-800/70 p-2.5 border border-slate-750">
+                  <div className="flex items-center justify-center gap-1 text-slate-400 text-[10px] font-semibold">
+                    <DollarSign className="w-3 h-3 text-blue-400" />
+                    <span>Vendido</span>
+                  </div>
+                  <p className="mt-0.5 text-sm font-bold text-white font-mono">
+                    {formatCurrency(todaySale.totalSales)}
+                  </p>
+                </div>
+
+                <div className="rounded-2xl bg-amber-500/10 p-2.5 border border-amber-500/30">
+                  <div className="flex items-center justify-center gap-1 text-amber-400 text-[10px] font-semibold">
+                    <Receipt className="w-3 h-3 text-amber-400" />
+                    <span>Custos</span>
+                  </div>
+                  <p className="mt-0.5 text-sm font-bold text-amber-300 font-mono">
+                    {formatCurrency(todaySale.cost)}
+                  </p>
+                </div>
+
+                <div className="rounded-2xl bg-slate-800/70 p-2.5 border border-slate-750">
+                  <div className="flex items-center justify-center gap-1 text-slate-400 text-[10px] font-semibold">
+                    <ShoppingBag className="w-3 h-3 text-purple-400" />
+                    <span>Volume</span>
+                  </div>
+                  <p className="mt-0.5 text-sm font-bold text-white font-mono">
+                    {todaySale.salesCount} {todaySale.salesCount === 1 ? 'venda' : 'vendas'}
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <div className="mt-3.5 grid grid-cols-2 gap-2.5">
+                <div className="rounded-2xl bg-slate-800/70 p-3.5 border border-slate-750">
+                  <div className="flex items-center gap-1.5 text-slate-400 text-xs font-semibold">
+                    <DollarSign className="w-3.5 h-3.5 text-blue-400" />
+                    <span>Total Vendido Hoje</span>
+                  </div>
+                  <p className="mt-1 text-lg font-bold text-white font-mono">
+                    {formatCurrency(todaySale.totalSales)}
+                  </p>
+                </div>
+
+                <div className="rounded-2xl bg-slate-800/70 p-3.5 border border-slate-750">
+                  <div className="flex items-center gap-1.5 text-slate-400 text-xs font-semibold">
+                    <ShoppingBag className="w-3.5 h-3.5 text-purple-400" />
+                    <span>Volume de Vendas</span>
+                  </div>
+                  <p className="mt-1 text-lg font-bold text-white font-mono">
+                    {todaySale.salesCount} {todaySale.salesCount === 1 ? 'venda' : 'vendas'}
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* Today's Payment Methods Breakdown */}
+            {(todaySale.paymentMethods?.pix ||
+              todaySale.paymentMethods?.credit ||
+              todaySale.paymentMethods?.cash) && (
+              <div className="mt-3.5 pt-3 border-t border-slate-800">
+                <p className="text-[11px] font-semibold text-slate-400 mb-2 flex items-center gap-1">
+                  <Wallet className="w-3.5 h-3.5 text-emerald-400" />
+                  Recebimentos de Hoje:
+                </p>
+                <div className="grid grid-cols-3 gap-2 text-center">
+                  <div className="rounded-xl bg-slate-800/80 p-2 border border-slate-750">
+                    <span className="text-[10px] text-emerald-400 font-bold">PIX</span>
+                    <p className="text-xs font-bold text-white font-mono mt-0.5">
+                      {formatCurrency(todaySale.paymentMethods?.pix || 0)}
+                    </p>
+                  </div>
+                  <div className="rounded-xl bg-slate-800/80 p-2 border border-slate-750">
+                    <span className="text-[10px] text-blue-400 font-bold">CARTÃO</span>
+                    <p className="text-xs font-bold text-white font-mono mt-0.5">
+                      {formatCurrency(
+                        (todaySale.paymentMethods?.credit || 0) + (todaySale.paymentMethods?.debit || 0)
+                      )}
+                    </p>
+                  </div>
+                  <div className="rounded-xl bg-slate-800/80 p-2 border border-slate-750">
+                    <span className="text-[10px] text-amber-400 font-bold">DINHEIRO</span>
+                    <p className="text-xs font-bold text-white font-mono mt-0.5">
+                      {formatCurrency(todaySale.paymentMethods?.cash || 0)}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        ) : (
+          /* Empty State: Invitation */
+          <div className="relative overflow-hidden rounded-3xl bg-slate-900 border border-slate-800 p-6 text-center shadow-xl">
+            <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-emerald-500/20 text-emerald-400 mb-3 border border-emerald-500/30">
+              <Clock className="w-7 h-7" />
+            </div>
+            <h3 className="text-lg font-bold text-white">Nenhum lançamento hoje</h3>
+            <p className="text-xs text-slate-300 mt-1 max-w-xs mx-auto">
+              Lance suas vendas ou custos do dia para acompanhar seu lucro real em tempo real!
+            </p>
+
+            <div className="mt-4 flex flex-col sm:flex-row items-center justify-center gap-2">
+              <button
+                onClick={() => onOpenNewSale()}
+                className="w-full sm:w-auto inline-flex items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-emerald-600 via-emerald-500 to-teal-400 py-3.5 px-6 text-sm font-extrabold text-slate-950 shadow-lg shadow-emerald-500/25 hover:from-emerald-500 hover:to-teal-300 active:scale-95 transition cursor-pointer"
+              >
+                <PlusCircle className="w-5 h-5 stroke-[2.5]" />
+                Lançar Venda
+              </button>
+              <button
+                onClick={() => (onOpenNewCost ? onOpenNewCost() : onOpenNewSale())}
+                className="w-full sm:w-auto inline-flex items-center justify-center gap-2 rounded-2xl bg-slate-800 border border-amber-500/40 hover:bg-slate-750 py-3.5 px-6 text-sm font-extrabold text-amber-300 active:scale-95 transition cursor-pointer"
+              >
+                <Receipt className="w-5 h-5 stroke-[2.2] text-amber-400" />
+                Lançar Custo
+              </button>
+            </div>
+          </div>
+        )
+      ) : (
+        /* Period Details Card for 7 Dias / 15 Dias / 30 Dias */
         <div className="relative overflow-hidden rounded-3xl bg-slate-900 border border-slate-800 p-5 shadow-2xl">
-          {/* Top Status Badge */}
           <div className="flex items-center justify-between pb-3 border-b border-slate-800/80">
             <div className="flex items-center gap-2">
               <span className="flex h-2.5 w-2.5 rounded-full bg-emerald-400"></span>
               <span className="text-xs font-bold uppercase tracking-wider text-emerald-400">
-                Resultado de Hoje
+                Detalhamento dos Últimos {periodStats.label}
               </span>
             </div>
-            <div className="flex items-center gap-1.5">
-              <button
-                type="button"
-                onClick={() => (onOpenNewCost ? onOpenNewCost() : onOpenNewSale())}
-                className="flex items-center gap-1 text-[11px] font-bold text-amber-300 hover:text-white bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 px-2.5 py-1 rounded-xl transition cursor-pointer"
-                title="Lançar custo ou despesa de hoje"
-              >
-                <Receipt className="w-3.5 h-3.5 text-amber-400" />
-                <span>+ Custo</span>
-              </button>
-              <button
-                onClick={() => handleShareWhatsApp(todaySale)}
-                className="flex items-center gap-1 text-[11px] font-bold text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-750 px-2.5 py-1 rounded-xl transition cursor-pointer"
-                title="Compartilhar no WhatsApp"
-              >
-                <Share2 className="w-3.5 h-3.5 text-emerald-400" />
-                <span>{copiedWhatsApp ? 'Enviado!' : 'WhatsApp'}</span>
-              </button>
-              <button
-                onClick={() => onOpenNewSale(todaySale)}
-                className="p-1.5 rounded-xl bg-slate-800 hover:bg-slate-750 text-slate-300 hover:text-white transition cursor-pointer"
-                title="Editar lançamento de hoje"
-              >
-                <Edit2 className="w-3.5 h-3.5" />
-              </button>
-            </div>
+            <span className="text-[11px] font-bold text-slate-400 font-mono">
+              {periodStats.daysWithSales} {periodStats.daysWithSales === 1 ? 'dia com vendas' : 'dias com vendas'}
+            </span>
           </div>
 
-          {/* Main Profit Card */}
+          {/* Main Profit in Period */}
           <div className="mt-4 text-center rounded-2xl bg-gradient-to-tr from-emerald-950/60 via-slate-900 to-emerald-950/40 border border-emerald-500/30 p-4 shadow-inner">
             <p className="text-[11px] font-bold uppercase tracking-widest text-emerald-300">
-              Seu Lucro Líquido Hoje
+              Seu Lucro Líquido Real ({periodStats.label})
             </p>
             <p className="mt-1 text-3xl sm:text-4xl font-black text-emerald-400 font-mono tracking-tight">
-              {formatCurrency(todaySale.profit)}
+              {formatCurrency(periodStats.totalProfit)}
             </p>
             <div className="mt-1.5 inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 text-xs font-bold border border-emerald-500/30">
-              <span>Margem de Lucro:</span>
-              <span className="font-mono">{formatPercent(todaySale.profitMargin)}</span>
+              <span>Margem no Período:</span>
+              <span className="font-mono">{formatPercent(periodStats.profitMargin)}</span>
             </div>
           </div>
 
-          {/* Stats Grid: Faturamento, Custos (se houver), Volume */}
-          {todaySale.cost > 0 ? (
-            <div className="mt-3.5 grid grid-cols-3 gap-2 text-center">
-              <div className="rounded-2xl bg-slate-800/70 p-2.5 border border-slate-750">
-                <div className="flex items-center justify-center gap-1 text-slate-400 text-[10px] font-semibold">
-                  <DollarSign className="w-3 h-3 text-blue-400" />
-                  <span>Vendido</span>
-                </div>
-                <p className="mt-0.5 text-sm font-bold text-white font-mono">
-                  {formatCurrency(todaySale.totalSales)}
-                </p>
+          {/* Stats Grid */}
+          <div className={`mt-3.5 grid ${periodStats.totalCost > 0 ? 'grid-cols-3' : 'grid-cols-2'} gap-2 text-center`}>
+            <div className="rounded-2xl bg-slate-800/70 p-2.5 border border-slate-750">
+              <div className="flex items-center justify-center gap-1 text-slate-400 text-[10px] font-semibold">
+                <DollarSign className="w-3 h-3 text-blue-400" />
+                <span>Total Vendido</span>
               </div>
+              <p className="mt-0.5 text-sm font-bold text-white font-mono">
+                {formatCurrency(periodStats.totalRevenue)}
+              </p>
+            </div>
 
+            {periodStats.totalCost > 0 && (
               <div className="rounded-2xl bg-amber-500/10 p-2.5 border border-amber-500/30">
                 <div className="flex items-center justify-center gap-1 text-amber-400 text-[10px] font-semibold">
                   <Receipt className="w-3 h-3 text-amber-400" />
                   <span>Custos</span>
                 </div>
                 <p className="mt-0.5 text-sm font-bold text-amber-300 font-mono">
-                  {formatCurrency(todaySale.cost)}
+                  - {formatCurrency(periodStats.totalCost)}
                 </p>
               </div>
+            )}
 
-              <div className="rounded-2xl bg-slate-800/70 p-2.5 border border-slate-750">
-                <div className="flex items-center justify-center gap-1 text-slate-400 text-[10px] font-semibold">
-                  <ShoppingBag className="w-3 h-3 text-purple-400" />
-                  <span>Volume</span>
-                </div>
-                <p className="mt-0.5 text-sm font-bold text-white font-mono">
-                  {todaySale.salesCount} {todaySale.salesCount === 1 ? 'venda' : 'vendas'}
-                </p>
+            <div className="rounded-2xl bg-slate-800/70 p-2.5 border border-slate-750">
+              <div className="flex items-center justify-center gap-1 text-slate-400 text-[10px] font-semibold">
+                <ShoppingBag className="w-3 h-3 text-purple-400" />
+                <span>Volume Total</span>
               </div>
+              <p className="mt-0.5 text-sm font-bold text-white font-mono">
+                {periodStats.totalSalesCount} {periodStats.totalSalesCount === 1 ? 'venda' : 'vendas'}
+              </p>
             </div>
-          ) : (
-            <div className="mt-3.5 grid grid-cols-2 gap-2.5">
-              <div className="rounded-2xl bg-slate-800/70 p-3.5 border border-slate-750">
-                <div className="flex items-center gap-1.5 text-slate-400 text-xs font-semibold">
-                  <DollarSign className="w-3.5 h-3.5 text-blue-400" />
-                  <span>Total Vendido Hoje</span>
-                </div>
-                <p className="mt-1 text-lg font-bold text-white font-mono">
-                  {formatCurrency(todaySale.totalSales)}
-                </p>
-              </div>
+          </div>
 
-              <div className="rounded-2xl bg-slate-800/70 p-3.5 border border-slate-750">
-                <div className="flex items-center gap-1.5 text-slate-400 text-xs font-semibold">
-                  <ShoppingBag className="w-3.5 h-3.5 text-purple-400" />
-                  <span>Volume de Vendas</span>
-                </div>
-                <p className="mt-1 text-lg font-bold text-white font-mono">
-                  {todaySale.salesCount} {todaySale.salesCount === 1 ? 'venda' : 'vendas'}
-                </p>
-              </div>
-            </div>
-          )}
-
-          {/* Today's Payment Methods Breakdown */}
-          {(todaySale.paymentMethods?.pix ||
-            todaySale.paymentMethods?.credit ||
-            todaySale.paymentMethods?.cash) && (
+          {/* Payment Methods Breakdown for this Period */}
+          {(periodStats.pixTotal > 0 || periodStats.cardTotal > 0 || periodStats.cashTotal > 0) && (
             <div className="mt-3.5 pt-3 border-t border-slate-800">
               <p className="text-[11px] font-semibold text-slate-400 mb-2 flex items-center gap-1">
                 <Wallet className="w-3.5 h-3.5 text-emerald-400" />
-                Recebimentos de Hoje:
+                Recebimentos em {periodStats.label}:
               </p>
               <div className="grid grid-cols-3 gap-2 text-center">
                 <div className="rounded-xl bg-slate-800/80 p-2 border border-slate-750">
                   <span className="text-[10px] text-emerald-400 font-bold">PIX</span>
                   <p className="text-xs font-bold text-white font-mono mt-0.5">
-                    {formatCurrency(todaySale.paymentMethods?.pix || 0)}
+                    {formatCurrency(periodStats.pixTotal)}
                   </p>
                 </div>
                 <div className="rounded-xl bg-slate-800/80 p-2 border border-slate-750">
                   <span className="text-[10px] text-blue-400 font-bold">CARTÃO</span>
                   <p className="text-xs font-bold text-white font-mono mt-0.5">
-                    {formatCurrency(
-                      (todaySale.paymentMethods?.credit || 0) + (todaySale.paymentMethods?.debit || 0)
-                    )}
+                    {formatCurrency(periodStats.cardTotal)}
                   </p>
                 </div>
                 <div className="rounded-xl bg-slate-800/80 p-2 border border-slate-750">
                   <span className="text-[10px] text-amber-400 font-bold">DINHEIRO</span>
                   <p className="text-xs font-bold text-white font-mono mt-0.5">
-                    {formatCurrency(todaySale.paymentMethods?.cash || 0)}
+                    {formatCurrency(periodStats.cashTotal)}
                   </p>
                 </div>
               </div>
             </div>
           )}
-        </div>
-      ) : (
-        /* Empty State: Invitation */
-        <div className="relative overflow-hidden rounded-3xl bg-slate-900 border border-slate-800 p-6 text-center shadow-xl">
-          <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-emerald-500/20 text-emerald-400 mb-3 border border-emerald-500/30">
-            <Clock className="w-7 h-7" />
-          </div>
-          <h3 className="text-lg font-bold text-white">Nenhum lançamento hoje</h3>
-          <p className="text-xs text-slate-300 mt-1 max-w-xs mx-auto">
-            Lance suas vendas ou custos do dia para acompanhar seu lucro real em tempo real!
-          </p>
-
-          <div className="mt-4 flex flex-col sm:flex-row items-center justify-center gap-2">
-            <button
-              onClick={() => onOpenNewSale()}
-              className="w-full sm:w-auto inline-flex items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-emerald-600 via-emerald-500 to-teal-400 py-3.5 px-6 text-sm font-extrabold text-slate-950 shadow-lg shadow-emerald-500/25 hover:from-emerald-500 hover:to-teal-300 active:scale-95 transition cursor-pointer"
-            >
-              <PlusCircle className="w-5 h-5 stroke-[2.5]" />
-              Lançar Venda
-            </button>
-            <button
-              onClick={() => (onOpenNewCost ? onOpenNewCost() : onOpenNewSale())}
-              className="w-full sm:w-auto inline-flex items-center justify-center gap-2 rounded-2xl bg-slate-800 border border-amber-500/40 hover:bg-slate-750 py-3.5 px-6 text-sm font-extrabold text-amber-300 active:scale-95 transition cursor-pointer"
-            >
-              <Receipt className="w-5 h-5 stroke-[2.2] text-amber-400" />
-              Lançar Custo
-            </button>
-          </div>
         </div>
       )}
 

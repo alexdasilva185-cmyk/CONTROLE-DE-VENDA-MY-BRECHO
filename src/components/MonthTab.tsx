@@ -181,13 +181,16 @@ export const MonthTab: React.FC<MonthTabProps> = ({
         <div className="rounded-2xl bg-slate-900 border border-slate-800 p-4">
           <div className="flex items-center gap-1.5 text-xs font-bold text-slate-400">
             <Calendar className="w-3.5 h-3.5 text-blue-400" />
-            <span>Dias com Vendas</span>
+            <span>Dias em que Vendeu</span>
           </div>
           <p className="mt-1 text-xl font-black text-white font-mono">
-            {summary.daysWithSales} <span className="text-xs font-normal text-slate-400">de {summary.totalDaysInMonth} dias</span>
+            {summary.daysWithSales} {summary.daysWithSales === 1 ? 'dia' : 'dias'}{' '}
+            <span className="text-xs font-normal text-slate-400">no mês</span>
           </p>
           <span className="text-[11px] text-slate-400 mt-0.5 block">
-            {summary.daysWithSales === 0 ? 'Nenhuma venda lançada' : `${summary.totalSalesCount} vendas registradas`}
+            {summary.daysWithSales === 0
+              ? 'Nenhuma venda lançada'
+              : `${summary.totalSalesCount} vendas divididas em ${summary.daysWithSales} dias`}
           </span>
         </div>
 
