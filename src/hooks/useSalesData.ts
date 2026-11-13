@@ -21,7 +21,12 @@ import {
 } from '../lib/firestoreService';
 import { useAuth } from '../context/AuthContext';
 import { calculateMonthSummary } from '../utils/calculations';
-import { getTodayDateString, getCurrentBrazilianTimeString } from '../utils/formatters';
+import {
+  getTodayDateString,
+  getCurrentBrazilianTimeString,
+  toIsoStringSafe,
+  toSafeString,
+} from '../utils/formatters';
 
 function applyMarginToSales(salesList: DailySale[], marginPct: number): DailySale[] {
   return salesList.map((s) => {
@@ -554,7 +559,7 @@ export function useSalesData() {
 
   const currentMonthSales = useMemo(() => {
     const targetPrefix = `${selectedYear}-${String(selectedMonth).padStart(2, '0')}`;
-    return sales.filter((s) => s.date.startsWith(targetPrefix));
+    return sales.filter((s) => typeof s?.date === 'string' && s.date.startsWith(targetPrefix));
   }, [sales, selectedYear, selectedMonth]);
 
   const deleteSaleEntry = useCallback(
@@ -753,64 +758,76 @@ export function useSalesData() {
     const list: TransactionItem[] = [];
 
     for (const day of sales) {
+      if (!day || typeof day !== 'object') continue;
+      const dayDate = toSafeString(day.date);
+
       // 1. Sales entries
-      if (day.entries && day.entries.length > 0) {
+      if (Array.isArray(day.entries) && day.entries.length > 0) {
         for (const entry of day.entries) {
+          if (!entry || typeof entry !== 'object') continue;
+          const entryTime = toSafeString(entry.time, '12:00');
           list.push({
-            id: entry.id,
+            id: toSafeString(entry.id) || `entry-${dayDate}-${Math.random().toString(36).slice(2, 6)}`,
             type: 'sale',
-            amount: entry.amount,
-            paymentMethod: entry.paymentMethod,
-            time: entry.time || '12:00',
-            date: day.date,
-            createdAt: entry.createdAt || `${day.date}T${entry.time || '12:00'}:00.000Z`,
+            amount: Number(entry.amount) || 0,
+            paymentMethod: entry.paymentMethod || 'pix',
+            time: entryTime,
+            date: dayDate,
+            createdAt: toIsoStringSafe(entry.createdAt, `${dayDate}T${entryTime}:00.000Z`),
           });
         }
       } else if (day.totalSales > 0) {
         list.push({
           id: `legacy-${day.id}`,
           type: 'sale',
-          amount: day.totalSales,
+          amount: Number(day.totalSales) || 0,
           paymentMethod: (day.paymentMethods?.pix || 0) >= (day.paymentMethods?.cash || 0) ? 'pix' : 'cash',
           time: '18:00',
-          createdAt: day.createdAt,
-          date: day.date,
+          createdAt: toIsoStringSafe(day.createdAt, `${dayDate}T18:00:00.000Z`),
+          date: dayDate,
         });
       }
 
       // 2. Cost entries
       if (Array.isArray(day.costEntries) && day.costEntries.length > 0) {
         for (const cost of day.costEntries) {
+          if (!cost || typeof cost !== 'object') continue;
+          const costTime = toSafeString(cost.time, '12:00');
           list.push({
-            id: cost.id,
+            id: toSafeString(cost.id) || `cost-${dayDate}-${Math.random().toString(36).slice(2, 6)}`,
             type: 'cost',
-            amount: cost.amount,
-            category: cost.category || 'Outros Gastos',
-            description: cost.description,
-            time: cost.time || '12:00',
-            date: day.date,
-            createdAt: cost.createdAt || `${day.date}T${cost.time || '12:00'}:00.000Z`,
+            amount: Number(cost.amount) || 0,
+            category: toSafeString(cost.category, 'Outros Gastos'),
+            description: toSafeString(cost.description),
+            time: costTime,
+            date: dayDate,
+            createdAt: toIsoStringSafe(cost.createdAt, `${dayDate}T${costTime}:00.000Z`),
           });
         }
       }
     }
 
-    return list.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    return list.sort((a, b) => toSafeString(b.createdAt).localeCompare(toSafeString(a.createdAt)));
   }, [sales]);
 
   const currentMonthCosts = useMemo(() => {
     const targetPrefix = `${selectedYear}-${String(selectedMonth).padStart(2, '0')}`;
     const list: Array<CostEntry & { date: string }> = [];
     for (const s of sales) {
-      if (s.date.startsWith(targetPrefix)) {
+      if (typeof s?.date === 'string' && s.date.startsWith(targetPrefix)) {
         if (Array.isArray(s.costEntries) && s.costEntries.length > 0) {
           for (const c of s.costEntries) {
-            list.push({ ...c, date: s.date });
+            if (!c || typeof c !== 'object') continue;
+            list.push({
+              ...c,
+              createdAt: toIsoStringSafe(c.createdAt),
+              date: s.date,
+            });
           }
         }
       }
     }
-    return list.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    return list.sort((a, b) => toSafeString(b.createdAt).localeCompare(toSafeString(a.createdAt)));
   }, [sales, selectedYear, selectedMonth]);
 
   const updateSaleEntry = useCallback(

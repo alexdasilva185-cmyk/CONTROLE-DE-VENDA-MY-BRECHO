@@ -1,5 +1,5 @@
 import { DailySale, AppSettings, MonthSummary } from '../types/sales';
-import { formatCurrency, formatPercent, formatDateBR } from './formatters';
+import { formatCurrency, formatPercent, formatDateBR, toIsoStringSafe, toSafeString } from './formatters';
 
 const STORAGE_KEY_SALES = 'minhas_vendas_records_v1';
 const STORAGE_KEY_SETTINGS = 'minhas_vendas_settings_v1';
@@ -140,23 +140,75 @@ export function isMockSale(sale: any): boolean {
   }
 
   // Purge test item from 2026-11-07 only if it has sample notes or sample ids
-  if (sale.date === '2026-11-07' && (sale.id?.includes('sample') || typeof sale.notes === 'string' && mockNotes.includes(sale.notes.toLowerCase().trim()))) {
+  const saleIdStr = toSafeString(sale.id);
+  const saleCreatedAtStr = toIsoStringSafe(sale.createdAt, '');
+  if (sale.date === '2026-11-07' && (saleIdStr.includes('sample') || (typeof sale.notes === 'string' && mockNotes.includes(sale.notes.toLowerCase().trim())))) {
     return true;
   }
 
   // Purge test artifact with 72.90 at 22:00 (10 da noite)
-  if (Math.abs(s - 72.9) < 0.05 && (sale.date === '2026-11-08' || sale.id?.includes('test') || sale.id?.includes('sample') || sale.createdAt?.includes('T22:'))) {
+  if (Math.abs(s - 72.9) < 0.05 && (sale.date === '2026-11-08' || saleIdStr.includes('test') || saleIdStr.includes('sample') || saleCreatedAtStr.includes('T22:'))) {
     return true;
   }
   if (Array.isArray(sale.entries)) {
     for (const e of sale.entries) {
-      if (Math.abs(Number(e?.amount) - 72.9) < 0.05 && (e?.time === '22:00' || e?.time === '10:00' || e?.createdAt?.includes('T22:'))) {
+      const entryCreatedStr = toIsoStringSafe(e?.createdAt, '');
+      if (Math.abs(Number(e?.amount) - 72.9) < 0.05 && (e?.time === '22:00' || e?.time === '10:00' || entryCreatedStr.includes('T22:'))) {
         return true;
       }
     }
   }
 
   return false;
+}
+
+function sanitizeStoredSale(raw: any): DailySale | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const dateStr = toSafeString(raw.date);
+  if (!dateStr) return null;
+
+  const createdAt = toIsoStringSafe(raw.createdAt);
+  const updatedAt = toIsoStringSafe(raw.updatedAt, createdAt);
+
+  return {
+    ...raw,
+    id: toSafeString(raw.id) || `sale-${dateStr}`,
+    date: dateStr,
+    totalSales: Number(raw.totalSales) || 0,
+    cost: Number(raw.cost) || 0,
+    profit: Number(raw.profit) || 0,
+    profitMargin: Number(raw.profitMargin) || 0,
+    salesCount: Number(raw.salesCount) || 0,
+    averageTicket: Number(raw.averageTicket) || 0,
+    entries: Array.isArray(raw.entries)
+      ? raw.entries
+          .filter((e: any) => e && typeof e === 'object')
+          .map((e: any, idx: number) => ({
+            ...e,
+            id: toSafeString(e.id) || `entry-${dateStr}-${idx + 1}`,
+            amount: Number(e.amount) || 0,
+            paymentMethod: e.paymentMethod === 'cash' || e.paymentMethod === 'card' ? e.paymentMethod : 'pix',
+            time: toSafeString(e.time) || '12:00',
+            createdAt: toIsoStringSafe(e.createdAt, createdAt),
+          }))
+      : [],
+    costEntries: Array.isArray(raw.costEntries)
+      ? raw.costEntries
+          .filter((c: any) => c && typeof c === 'object')
+          .map((c: any, idx: number) => ({
+            ...c,
+            id: toSafeString(c.id) || `cost-${dateStr}-${idx + 1}`,
+            amount: Number(c.amount) || 0,
+            description: toSafeString(c.description) || 'Despesa / Custo',
+            category: toSafeString(c.category) || 'Outros',
+            time: toSafeString(c.time) || '12:00',
+            createdAt: toIsoStringSafe(c.createdAt, createdAt),
+          }))
+      : [],
+    notes: toSafeString(raw.notes),
+    createdAt,
+    updatedAt,
+  };
 }
 
 export function loadSalesFromStorage(): DailySale[] {
@@ -168,11 +220,13 @@ export function loadSalesFromStorage(): DailySale[] {
     }
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
-    const cleaned = parsed.filter((s) => !isMockSale(s));
-    if (cleaned.length !== parsed.length) {
-      saveSalesToStorage(cleaned);
+    const sanitized = parsed
+      .map(sanitizeStoredSale)
+      .filter((s): s is DailySale => s !== null && !isMockSale(s));
+    if (sanitized.length !== parsed.length) {
+      saveSalesToStorage(sanitized);
     }
-    return cleaned;
+    return sanitized;
   } catch (err) {
     console.error('Erro ao carregar vendas do localStorage', err);
     return [];

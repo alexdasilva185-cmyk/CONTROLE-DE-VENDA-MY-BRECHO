@@ -11,7 +11,7 @@ export default defineConfig(() => {
       tailwindcss(),
       VitePWA({
         registerType: 'autoUpdate',
-        includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'icon.svg'],
+        injectRegister: false,
         manifest: {
           id: '/',
           name: 'MY Brechó - Controle de Vendas',
@@ -44,12 +44,23 @@ export default defineConfig(() => {
           ],
         },
         workbox: {
+          cleanupOutdatedCaches: true,
+          skipWaiting: true,
+          clientsClaim: true,
           maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
-          globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2}'],
+          globPatterns: [
+            'assets/*.{js,css}',
+            'index.html',
+            'favicon.ico',
+            'icon.svg',
+            'apple-touch-icon.png',
+          ],
+          globIgnores: ['**/assets/aistudio/**'],
+          navigateFallback: '/index.html',
+          navigateFallbackDenylist: [/^\/__/, /^\/api\//, /^\/assets\//],
         },
         devOptions: {
-          enabled: true,
-          type: 'module',
+          enabled: false,
         },
       }),
     ],

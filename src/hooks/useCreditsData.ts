@@ -6,16 +6,52 @@ import {
   deleteCreditFromCloud,
   subscribeToUserCredits,
 } from '../lib/firestoreCreditsService';
-import { getCurrentBrazilianTimeString, getTodayDateString } from '../utils/formatters';
+import { getCurrentBrazilianTimeString, getTodayDateString, toIsoStringSafe, toSafeString } from '../utils/formatters';
 
 const STORAGE_KEY_CREDITS = 'minhas_vendas_credits_v1';
+
+function sanitizeCreditRecord(raw: any): CustomerCredit | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const createdAt = toIsoStringSafe(raw.createdAt);
+  const updatedAt = toIsoStringSafe(raw.updatedAt, createdAt);
+  const remainingAmount = Number(raw.remainingAmount) || 0;
+
+  return {
+    id: toSafeString(raw.id) || `credit-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    customerName: toSafeString(raw.customerName, 'Cliente') || 'Cliente',
+    customerPhone: toSafeString(raw.customerPhone),
+    initialAmount: Number(raw.initialAmount) || 0,
+    remainingAmount,
+    status: raw.status === 'used' || raw.status === 'cancelled' || raw.status === 'active'
+      ? raw.status
+      : (remainingAmount <= 0 ? 'used' : 'active'),
+    description: toSafeString(raw.description),
+    usages: Array.isArray(raw.usages)
+      ? raw.usages
+          .filter((u: any) => u && typeof u === 'object')
+          .map((u: any, idx: number) => ({
+            id: toSafeString(u.id) || `usage-${idx}-${Date.now()}`,
+            amount: Number(u.amount) || 0,
+            date: toSafeString(u.date),
+            time: toSafeString(u.time),
+            notes: toSafeString(u.notes),
+            createdAt: toIsoStringSafe(u.createdAt, createdAt),
+          }))
+      : [],
+    createdAt,
+    updatedAt,
+  };
+}
 
 function loadCreditsFromStorage(): CustomerCredit[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEY_CREDITS);
     if (!raw) return [];
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .map(sanitizeCreditRecord)
+      .filter((c): c is CustomerCredit => c !== null);
   } catch (err) {
     console.error('Erro ao ler créditos do localStorage:', err);
     return [];

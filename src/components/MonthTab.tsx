@@ -72,7 +72,7 @@ export const MonthTab: React.FC<MonthTabProps> = ({
     if (chartMode === 'ranking') {
       return b.totalSales - a.totalSales; // Highest to lowest
     }
-    return a.date.localeCompare(b.date); // Chronological by date
+    return String(a.date || '').localeCompare(String(b.date || '')); // Chronological by date
   });
 
   const maxSaleAmount = highestSaleDay ? Math.max(highestSaleDay.totalSales, 1) : 1;
@@ -422,7 +422,10 @@ export const MonthTab: React.FC<MonthTabProps> = ({
               const ratio = sale.totalSales / maxSaleAmount;
               const heightPercent = Math.max(26, Math.round(ratio * 90));
 
-              const [y, m, d] = sale.date.split('-').map(Number);
+              const dateParts = String(sale.date || '').split('-').map(Number);
+              const y = dateParts[0] || new Date().getFullYear();
+              const m = dateParts[1] || 1;
+              const d = dateParts[2] || 1;
               const dateObj = new Date(y, m - 1, d);
               const weekday = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'][dateObj.getDay()] || '';
 

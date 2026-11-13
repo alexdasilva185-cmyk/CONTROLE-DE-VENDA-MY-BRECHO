@@ -13,8 +13,10 @@ export function calculateMonthSummary(
   const totalDaysInMonth = getDaysInMonth(year, month);
   const targetPrefix = `${year}-${String(month).padStart(2, '0')}`;
 
-  // Filter sales for this month
-  const monthSales = sales.filter((s) => s.date.startsWith(targetPrefix));
+  // Filter sales for this month safely
+  const monthSales = Array.isArray(sales)
+    ? sales.filter((s) => typeof s?.date === 'string' && s.date.startsWith(targetPrefix))
+    : [];
 
   let totalRevenue = 0;
   let totalCost = 0;

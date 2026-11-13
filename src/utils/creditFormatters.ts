@@ -1,9 +1,9 @@
 import { CustomerCredit } from '../types/credits';
-import { formatCurrency, formatDateBR } from './formatters';
+import { formatCurrency, formatDateBR, toIsoStringSafe, toSafeString } from './formatters';
 
 // Cleans phone for WhatsApp URL (ensuring country code 55 if not present)
 export function cleanWhatsAppNumber(phone: string): string {
-  const digits = phone.replace(/\D/g, '');
+  const digits = toSafeString(phone).replace(/\D/g, '');
   if (!digits) return '';
   if (digits.length === 10 || digits.length === 11) {
     return `55${digits}`;
@@ -13,14 +13,15 @@ export function cleanWhatsAppNumber(phone: string): string {
 
 // Format phone for visual display: (XX) XXXXX-XXXX
 export function formatPhoneVisual(phone: string): string {
-  const digits = phone.replace(/\D/g, '');
+  const safePhone = toSafeString(phone);
+  const digits = safePhone.replace(/\D/g, '');
   if (digits.length === 11) {
     return `(${digits.slice(0, 2)}) ${digits.slice(2, 7)}-${digits.slice(7)}`;
   }
   if (digits.length === 10) {
     return `(${digits.slice(0, 2)}) ${digits.slice(2, 6)}-${digits.slice(6)}`;
   }
-  return phone;
+  return safePhone;
 }
 
 // 1. Mensagem de Emissão / Saldo Inicial do Vale-Crédito
@@ -28,14 +29,15 @@ export function generateNewCreditWhatsAppText(
   credit: CustomerCredit,
   businessName: string = 'MY Brechó'
 ): string {
+  const createdDate = toIsoStringSafe(credit.createdAt).split('T')[0];
   return [
-    `👗 *${businessName.toUpperCase()} - SEU VALE-CRÉDITO* ✨`,
-    `Olá, *${credit.customerName}*! Tudo bem?`,
+    `👗 *${toSafeString(businessName, 'MY Brechó').toUpperCase()} - SEU VALE-CRÉDITO* ✨`,
+    `Olá, *${toSafeString(credit.customerName, 'Cliente')}*! Tudo bem?`,
     ``,
     `Registramos o seu crédito para compras no brechó:`,
     `💰 *Valor Disponível:* *${formatCurrency(credit.remainingAmount)}*`,
     credit.description ? `📝 *Referente a:* ${credit.description}` : '',
-    `📅 *Data de Emissão:* ${formatDateBR(credit.createdAt.split('T')[0])}`,
+    `📅 *Data de Emissão:* ${formatDateBR(createdDate)}`,
     ``,
     `Você pode utilizar esse saldo quando vier nos visitar para escolher suas peças!`,
     `Qualquer dúvida estamos à disposição. Te esperamos! 💕🛍️`,

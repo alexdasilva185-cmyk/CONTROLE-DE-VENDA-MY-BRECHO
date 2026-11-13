@@ -101,23 +101,63 @@ export function getCurrentBrazilianTimeString(date: Date = new Date()): string {
   }
 }
 
+export function toSafeString(value: unknown, fallback = ''): string {
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' && !isNaN(value)) return String(value);
+  return fallback;
+}
+
+export function toIsoStringSafe(value: unknown, fallback?: string): string {
+  if (typeof value === 'string' && value.trim()) {
+    return value.trim();
+  }
+  if (value && typeof value === 'object') {
+    const maybeTs = value as { toDate?: () => Date; seconds?: number; _seconds?: number };
+    if (typeof maybeTs.toDate === 'function') {
+      try {
+        const d = maybeTs.toDate();
+        if (d instanceof Date && !isNaN(d.getTime())) return d.toISOString();
+      } catch {
+        // ignore
+      }
+    }
+    const secs = typeof maybeTs.seconds === 'number' ? maybeTs.seconds : maybeTs._seconds;
+    if (typeof secs === 'number' && !isNaN(secs)) {
+      const d = new Date(secs * 1000);
+      if (!isNaN(d.getTime())) return d.toISOString();
+    }
+  }
+  if (value instanceof Date && !isNaN(value.getTime())) {
+    return value.toISOString();
+  }
+  if (typeof value === 'number' && !isNaN(value) && value > 0) {
+    const d = new Date(value);
+    if (!isNaN(d.getTime())) return d.toISOString();
+  }
+  return fallback ?? new Date().toISOString();
+}
+
 export function formatDateBR(dateString: string): string {
-  if (!dateString) return '';
-  const [year, month, day] = dateString.split('-');
+  if (typeof dateString !== 'string' || !dateString.includes('-')) return '';
+  const parts = dateString.split('-');
+  if (parts.length !== 3) return dateString;
+  const [year, month, day] = parts;
   return `${day}/${month}/${year}`;
 }
 
 export function formatDateFull(dateString: string): string {
-  if (!dateString) return '';
+  if (typeof dateString !== 'string' || !dateString.includes('-')) return '';
   const [year, month, day] = dateString.split('-').map(Number);
+  if (!year || !month || !day) return '';
   const date = new Date(year, month - 1, day);
-  const weekday = WEEKDAYS_PT[date.getDay()];
-  const monthName = MONTH_NAMES_PT[month - 1];
+  if (isNaN(date.getTime())) return '';
+  const weekday = WEEKDAYS_PT[date.getDay()] || '';
+  const monthName = MONTH_NAMES_PT[month - 1] || '';
   return `${weekday}, ${day} de ${monthName}`;
 }
 
 export function formatMonthYear(year: number, month: number): string {
-  return `${MONTH_NAMES_PT[month - 1]} de ${year}`;
+  return `${MONTH_NAMES_PT[month - 1] || ''} de ${year}`;
 }
 
 export function parseBRInputToNumber(text: string): number {

@@ -8,6 +8,7 @@ import {
 } from 'firebase/firestore';
 import { db, auth } from './firebase';
 import { DailySale, AppSettings } from '../types/sales';
+import { toIsoStringSafe, toSafeString } from '../utils/formatters';
 
 export enum OperationType {
   CREATE = 'create',
@@ -124,17 +125,20 @@ export function isMockSaleDoc(data: any, docId?: string): boolean {
   }
 
   // Purge test doc from 2026-11-07 only if it has sample notes or sample identifiers
-  if ((dateStr === '2026-11-07' || docId?.includes('2026-11-07')) && (docId?.includes('sample') || typeof data.notes === 'string' && mockNotes.includes(data.notes.toLowerCase().trim()))) {
+  const docIdStr = toSafeString(docId);
+  const createdAtStr = toIsoStringSafe(data.createdAt, '');
+  if ((dateStr === '2026-11-07' || docIdStr.includes('2026-11-07')) && (docIdStr.includes('sample') || (typeof data.notes === 'string' && mockNotes.includes(data.notes.toLowerCase().trim())))) {
     return true;
   }
 
   // Purge test artifact with 72.90 at 22:00 (10 da noite)
-  if (Math.abs(s - 72.9) < 0.05 && (dateStr === '2026-11-08' || docId?.includes('2026-11-08') || docId?.includes('test') || docId?.includes('sample') || data.createdAt?.includes('T22:'))) {
+  if (Math.abs(s - 72.9) < 0.05 && (dateStr === '2026-11-08' || docIdStr.includes('2026-11-08') || docIdStr.includes('test') || docIdStr.includes('sample') || createdAtStr.includes('T22:'))) {
     return true;
   }
   if (Array.isArray(data.entries)) {
     for (const e of data.entries) {
-      if (Math.abs(Number(e?.amount) - 72.9) < 0.05 && (e?.time === '22:00' || e?.time === '10:00' || e?.createdAt?.includes('T22:'))) {
+      const eCreated = toIsoStringSafe(e?.createdAt, '');
+      if (Math.abs(Number(e?.amount) - 72.9) < 0.05 && (e?.time === '22:00' || e?.time === '10:00' || eCreated.includes('T22:'))) {
         return true;
       }
     }
@@ -178,15 +182,16 @@ function normalizeDate(rawDate?: unknown, docId?: string): string {
   return getTodaySafeDate();
 }
 
-function formatIsoToBRTime(iso?: string): string {
-  if (!iso) return '12:00';
+function formatIsoToBRTime(iso?: unknown): string {
+  const safeIso = toIsoStringSafe(iso, '');
+  if (!safeIso) return '12:00';
   try {
     return new Intl.DateTimeFormat('pt-BR', {
       timeZone: 'America/Sao_Paulo',
       hour: '2-digit',
       minute: '2-digit',
       hour12: false,
-    }).format(new Date(iso));
+    }).format(new Date(safeIso));
   } catch {
     return '12:00';
   }
@@ -236,25 +241,29 @@ export function parseSaleDocument(docId: string, data: any): DailySale {
   const cash = Number(data.paymentMethods?.cash ?? data.paymentMethods?.dinheiro ?? data.dinheiro ?? 0);
 
   // Parse or synthesize entries
+  const docCreatedAt = toIsoStringSafe(data.createdAt);
+  const docUpdatedAt = toIsoStringSafe(data.updatedAt, docCreatedAt);
   let entries: DailySale['entries'] = [];
   if (Array.isArray(data.entries) && data.entries.length > 0) {
-    entries = data.entries.map((e: any, idx: number) => ({
-      id: e.id || `entry-${date}-${idx + 1}-${Date.now()}`,
-      amount: Number(e.amount ?? e.valor ?? 0),
-      paymentMethod:
-        e.paymentMethod === 'pix' || e.metodo === 'pix' || e.forma === 'pix'
-          ? 'pix'
-          : e.paymentMethod === 'card' ||
-            e.paymentMethod === 'cartao' ||
-            e.paymentMethod === 'credit' ||
-            e.forma === 'cartao'
-          ? 'card'
-          : 'cash',
-      time: e.time || e.hora || formatIsoToBRTime(e.createdAt || data.createdAt),
-      createdAt: e.createdAt || data.createdAt || new Date().toISOString(),
-    }));
+    entries = data.entries
+      .filter((e: any) => e && typeof e === 'object')
+      .map((e: any, idx: number) => ({
+        id: toSafeString(e.id) || `entry-${date}-${idx + 1}-${Date.now()}`,
+        amount: Number(e.amount ?? e.valor ?? 0) || 0,
+        paymentMethod:
+          e.paymentMethod === 'pix' || e.metodo === 'pix' || e.forma === 'pix'
+            ? 'pix'
+            : e.paymentMethod === 'card' ||
+              e.paymentMethod === 'cartao' ||
+              e.paymentMethod === 'credit' ||
+              e.forma === 'cartao'
+            ? 'card'
+            : 'cash',
+        time: toSafeString(e.time ?? e.hora) || formatIsoToBRTime(e.createdAt || docCreatedAt),
+        createdAt: toIsoStringSafe(e.createdAt, docCreatedAt),
+      }));
   } else if (totalSales > 0) {
-    const docTime = formatIsoToBRTime(data.createdAt);
+    const docTime = formatIsoToBRTime(docCreatedAt);
     // If entries weren't explicitly entered in Firebase Console, synthesize using document creation time
     if (pix > 0) {
       entries.push({
@@ -262,7 +271,7 @@ export function parseSaleDocument(docId: string, data: any): DailySale {
         amount: pix,
         paymentMethod: 'pix',
         time: docTime,
-        createdAt: data.createdAt || new Date().toISOString(),
+        createdAt: docCreatedAt,
       });
     }
     if (credit > 0) {
@@ -271,7 +280,7 @@ export function parseSaleDocument(docId: string, data: any): DailySale {
         amount: credit,
         paymentMethod: 'card',
         time: docTime,
-        createdAt: data.createdAt || new Date().toISOString(),
+        createdAt: docCreatedAt,
       });
     }
     if (cash > 0) {
@@ -280,7 +289,7 @@ export function parseSaleDocument(docId: string, data: any): DailySale {
         amount: cash,
         paymentMethod: 'cash',
         time: docTime,
-        createdAt: data.createdAt || new Date().toISOString(),
+        createdAt: docCreatedAt,
       });
     }
     if (entries.length === 0) {
@@ -289,7 +298,7 @@ export function parseSaleDocument(docId: string, data: any): DailySale {
         amount: totalSales,
         paymentMethod: 'pix',
         time: docTime,
-        createdAt: data.createdAt || new Date().toISOString(),
+        createdAt: docCreatedAt,
       });
     }
   }
@@ -301,8 +310,8 @@ export function parseSaleDocument(docId: string, data: any): DailySale {
     cost,
     profit,
     profitMargin,
-    salesCount,
-    averageTicket,
+    salesCount: totalSales > 0 ? salesCount : 0,
+    averageTicket: totalSales > 0 ? averageTicket : 0,
     paymentMethods: {
       pix: pix > 0 ? pix : undefined,
       credit: credit > 0 ? credit : undefined,
@@ -310,18 +319,20 @@ export function parseSaleDocument(docId: string, data: any): DailySale {
     },
     entries,
     costEntries: Array.isArray(data.costEntries)
-      ? data.costEntries.map((c: any, idx: number) => ({
-          id: c.id || `cost-${date}-${idx + 1}`,
-          amount: Number(c.amount ?? c.valor ?? 0),
-          description: c.description ?? c.descricao ?? c.motivo ?? 'Despesa/Custo',
-          category: c.category ?? c.categoria ?? 'Outros',
-          time: c.time ?? c.hora ?? '12:00',
-          createdAt: c.createdAt || new Date().toISOString(),
-        }))
+      ? data.costEntries
+          .filter((c: any) => c && typeof c === 'object')
+          .map((c: any, idx: number) => ({
+            id: toSafeString(c.id) || `cost-${date}-${idx + 1}`,
+            amount: Number(c.amount ?? c.valor ?? 0) || 0,
+            description: toSafeString(c.description ?? c.descricao ?? c.motivo, 'Despesa/Custo'),
+            category: toSafeString(c.category ?? c.categoria, 'Outros'),
+            time: toSafeString(c.time ?? c.hora, '12:00'),
+            createdAt: toIsoStringSafe(c.createdAt, docCreatedAt),
+          }))
       : [],
     notes: typeof data.notes === 'string' ? data.notes : typeof data.observacao === 'string' ? data.observacao : '',
-    createdAt: data.createdAt || new Date().toISOString(),
-    updatedAt: data.updatedAt || new Date().toISOString(),
+    createdAt: docCreatedAt,
+    updatedAt: docUpdatedAt,
   };
 }
 
@@ -355,17 +366,21 @@ export function subscribeToUserSales(
     (snapshot) => {
       const currentIds = new Set<string>();
       snapshot.forEach((docSnap) => {
-        const data = docSnap.data();
+        try {
+          const data = docSnap.data();
 
-        // If mock data is found in Firestore, permanently delete it!
-        if (isMockSaleDoc(data, docSnap.id)) {
-          deleteDoc(docSnap.ref).catch((e) => console.warn('Falha ao excluir mock:', e));
-          return;
+          // If mock data is found in Firestore, permanently delete it!
+          if (isMockSaleDoc(data, docSnap.id)) {
+            deleteDoc(docSnap.ref).catch((e) => console.warn('Falha ao excluir mock:', e));
+            return;
+          }
+
+          const sale = parseSaleDocument(docSnap.id, data);
+          activeSalesMap.set(docSnap.id, sale);
+          currentIds.add(docSnap.id);
+        } catch (docErr) {
+          console.warn('Documento de venda ignorado por erro de leitura:', docSnap.id, docErr);
         }
-
-        const sale = parseSaleDocument(docSnap.id, data);
-        activeSalesMap.set(docSnap.id, sale);
-        currentIds.add(docSnap.id);
       });
 
       // Remove any docs that were deleted from primary collection
@@ -404,16 +419,17 @@ export async function saveSaleToCloud(userId: string, sale: DailySale): Promise<
   try {
     const docRef = doc(db, 'users', userId, 'sales', saleId);
 
+    const totalSalesNum = Number(sale.totalSales) || 0;
     // Explicitly construct safe object without any undefined values
     const safeData = cleanForFirestore({
       id: saleId,
       date: targetDate,
-      totalSales: Number(sale.totalSales) || 0,
+      totalSales: totalSalesNum,
       cost: Number(sale.cost) || 0,
       profit: Number(sale.profit) || 0,
       profitMargin: Number(sale.profitMargin) || 0,
-      salesCount: Math.max(1, Number(sale.salesCount) || 1),
-      averageTicket: Number(sale.averageTicket) || (Number(sale.totalSales) || 0),
+      salesCount: totalSalesNum > 0 ? Math.max(1, Number(sale.salesCount) || 1) : 0,
+      averageTicket: totalSalesNum > 0 ? (Number(sale.averageTicket) || totalSalesNum) : 0,
       paymentMethods: {
         pix: Number(sale.paymentMethods?.pix) || 0,
         credit: Number(sale.paymentMethods?.credit) || 0,

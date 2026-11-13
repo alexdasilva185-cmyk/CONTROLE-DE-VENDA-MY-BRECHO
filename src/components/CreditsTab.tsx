@@ -86,9 +86,12 @@ export const CreditsTab: React.FC<CreditsTabProps> = ({
       // Search filter
       if (searchTerm.trim()) {
         const query = searchTerm.toLowerCase().trim();
-        const matchesName = item.customerName.toLowerCase().includes(query);
-        const matchesPhone = item.customerPhone.replace(/\D/g, '').includes(query.replace(/\D/g, ''));
-        const matchesDesc = (item.description || '').toLowerCase().includes(query);
+        const matchesName = String(item.customerName || '').toLowerCase().includes(query);
+        const queryDigits = query.replace(/\D/g, '');
+        const matchesPhone = queryDigits
+          ? String(item.customerPhone || '').replace(/\D/g, '').includes(queryDigits)
+          : false;
+        const matchesDesc = String(item.description || '').toLowerCase().includes(query);
         return matchesName || matchesPhone || matchesDesc;
       }
 
