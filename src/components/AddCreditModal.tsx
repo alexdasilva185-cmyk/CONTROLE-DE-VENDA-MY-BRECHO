@@ -27,6 +27,7 @@ export const AddCreditModal: React.FC<AddCreditModalProps> = ({
   const [description, setDescription] = useState('');
   const [sendWhatsAppAfter, setSendWhatsAppAfter] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   if (!isOpen) return null;
 
@@ -41,8 +42,6 @@ export const AddCreditModal: React.FC<AddCreditModalProps> = ({
       setCustomerPhone(`(${digits.slice(0, 2)}) ${digits.slice(2, 7)}-${digits.slice(7)}`);
     }
   };
-
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -76,9 +75,11 @@ export const AddCreditModal: React.FC<AddCreditModalProps> = ({
       setCustomerPhone('');
       setAmountStr('');
       setDescription('');
+      setErrorMessage(null);
       onClose();
     } catch (err) {
       console.error('Erro ao salvar crédito:', err);
+      setErrorMessage('Ocorreu um erro ao salvar o vale-crédito. Tente novamente.');
     } finally {
       setIsSaving(false);
     }

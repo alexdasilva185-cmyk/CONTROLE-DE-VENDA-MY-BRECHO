@@ -27,6 +27,7 @@ export const DeductCreditModal: React.FC<DeductCreditModalProps> = ({
   const [notes, setNotes] = useState('');
   const [sendWhatsApp, setSendWhatsApp] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   if (!isOpen || !credit) return null;
 
@@ -38,8 +39,6 @@ export const DeductCreditModal: React.FC<DeductCreditModalProps> = ({
   const handleUseAll = () => {
     setDeductStr(currentBalance.toFixed(2).replace('.', ','));
   };
-
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -57,7 +56,7 @@ export const DeductCreditModal: React.FC<DeductCreditModalProps> = ({
     try {
       const updated = await onDeductCredit(credit.id, deductVal, notes.trim() || 'Compras no brechó');
 
-      if (sendWhatsApp && updated && credit.customerPhone.trim()) {
+      if (sendWhatsApp && updated && (credit.customerPhone || '').trim()) {
         if (updated.remainingAmount <= 0.01) {
           const text = generateCreditCompletedWhatsAppText(updated, businessName);
           openWhatsApp(credit.customerPhone, text);
@@ -69,9 +68,11 @@ export const DeductCreditModal: React.FC<DeductCreditModalProps> = ({
 
       setDeductStr('');
       setNotes('');
+      setErrorMessage(null);
       onClose();
     } catch (err) {
       console.error('Erro ao abater crédito:', err);
+      setErrorMessage('Ocorreu um erro ao abater o crédito. Tente novamente.');
     } finally {
       setIsSaving(false);
     }
